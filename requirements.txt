@@ -2,7 +2,3 @@ requests
 pandas
 schedule
 pytz
-# Install pandas-ta dari source code GitHub (Development Branch)
-git+https://github.com/twopirllc/pandas-ta.git@development
-# Kunci versi numpy agar aman
-numpy<2.0.0
