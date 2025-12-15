@@ -2,7 +2,6 @@ import os
 import time
 import requests
 import pandas as pd
-import pandas_ta as ta
 import schedule
 from datetime import datetime
 import pytz
@@ -12,27 +11,30 @@ GOAPI_KEY = os.getenv("GOAPI_KEY", "ISI_API_KEY_DISINI")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "ISI_TOKEN_DISINI")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "ISI_CHAT_ID_DISINI")
 
-# List Saham LQ45 / Bluechip
+# List Saham LQ45 / Bluechip Pilihan
 TICKERS = [
     "BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "ASII", "UNTR", "ICBP", 
     "INDF", "GOTO", "ADRO", "PTBA", "ANTM", "INCO", "MDKA", "PGAS",
     "UNVR", "KLBF", "SMGR", "INTP", "BRIS", "AMRT", "CPIN", "JPFA"
 ]
 
+# --- FUNGSI TELEGRAM ---
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
-        requests.post(url, data=data)
+        requests.post(url, data=data, timeout=10)
     except Exception as e:
         print(f"Error sending telegram: {e}")
 
+# --- FUNGSI DATA ---
 def get_market_data(ticker):
     url = f"https://api.goapi.io/stock/idx/{ticker}/historical"
     headers = {"X-API-KEY": GOAPI_KEY}
     try:
+        # Ambil 60 hari data untuk kalkulasi EMA/RSI yang akurat
         params = {"to": datetime.now().strftime("%Y-%m-%d"), "limit": 60}
-        res = requests.get(url, headers=headers, params=params).json()
+        res = requests.get(url, headers=headers, params=params, timeout=10).json()
         
         if res['status'] != 'success' or not res['data']['results']:
             return None
@@ -41,131 +43,145 @@ def get_market_data(ticker):
         df['date'] = pd.to_datetime(df['date'])
         df = df.sort_values('date')
         
-        for c in ['open', 'high', 'low', 'close', 'volume']:
+        # Konversi ke float
+        cols = ['open', 'high', 'low', 'close', 'volume']
+        for c in cols:
             df[c] = df[c].astype(float)
         return df
-    except Exception as e:
-        print(f"Error fetching {ticker}: {e}")
+    except Exception:
         return None
 
-def analyze_market():
-    print(f"[{datetime.now()}] 🔄 Memulai Screening BSJP...")
-    send_telegram("🔄 <b>Analisa Pasar Dimulai...</b>\nMohon tunggu sinyal potensial.")
+# --- RUMUS TEKNIKAL MANUAL (PENGGANTI LIBRARY) ---
+def add_indicators(df):
+    # 1. RSI 14 (Rumus Wilder's Smoothing)
+    delta = df['close'].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    
+    # Menggunakan EWMA untuk meniru standar RSI di TradingView/Library
+    avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    
+    rs = avg_gain / avg_loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # 2. SMA Volume 20
+    df['VOL_SMA_20'] = df['volume'].rolling(window=20).mean()
+    
+    # 3. EMA 20 & 50
+    df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
+    
+    return df
 
+# --- LOGIKA UTAMA ---
+def analyze_market():
+    print(f"[{datetime.now()}] 🔄 Screening dimulai...")
+    send_telegram("🔄 <b>BSJP Screening Started...</b>\nMencari sinyal potensial...")
+    
     candidates = []
     
     for ticker in TICKERS:
-        df = get_market_data(ticker)
-        if df is None or len(df) < 50: continue
-        
-        # --- TEKNIKAL PANDAS TA ---
-        df['RSI'] = df.ta.rsi(length=14)
-        df.ta.ema(length=20, append=True)
-        df.ta.ema(length=50, append=True)
-        df['VOL_SMA'] = df.ta.sma(close=df['volume'], length=20)
-        
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        
-        # --- LOGIKA SCREENING ---
-        change_pct = ((last['close'] - prev['close']) / prev['close']) * 100
-        
-        # Filter Dasar
-        if not (0.5 <= change_pct <= 6.0): continue
-        if last['close'] < 100: continue
-        
-        # Filter Volume & RSI
-        vol_ratio = last['volume'] / last['VOL_SMA'] if last['VOL_SMA'] > 0 else 0
-        if vol_ratio < 1.3: continue 
-        if not (45 <= last['RSI'] <= 68): continue # Zona aman
-        
-        # Filter Transaksi Value (> 5M)
-        if (last['close'] * last['volume']) < 5_000_000_000: continue
-
-        # --- SCORING ---
-        score = 50
-        reasons = []
-        
-        if vol_ratio > 2.0:
-            score += 15
-            reasons.append("🔥 High Vol")
-        elif vol_ratio > 1.5:
-            score += 10
-            reasons.append("✅ Vol Spike")
+        try:
+            df = get_market_data(ticker)
+            if df is None or len(df) < 50: continue
             
-        if last['close'] > last['EMA_20'] > last['EMA_50']:
-            score += 20
-            reasons.append("📈 Uptrend")
+            # Hitung indikator manual
+            df = add_indicators(df)
             
-        if last['close'] >= (last['high'] * 0.98):
-            score += 10
-            reasons.append("💪 Strong Close")
-
-        if score >= 70:
-            candidates.append({
-                'symbol': ticker,
-                'price': int(last['close']),
-                'change': round(change_pct, 2),
-                'score': score,
-                'tp': int(last['close'] * 1.03),
-                'sl': int(last['close'] * 0.98),
-                'reasons': ", ".join(reasons)
-            })
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
             
-        time.sleep(0.2)
+            # --- FILTERING ---
+            
+            # 1. Harga Naik (0.5% - 6%)
+            change_pct = ((last['close'] - prev['close']) / prev['close']) * 100
+            if not (0.5 <= change_pct <= 6.0): continue
+            
+            # 2. Harga > 100 perak
+            if last['close'] < 100: continue
+            
+            # 3. Volume Spike (> 1.3x rata-rata)
+            vol_ratio = last['volume'] / last['VOL_SMA_20'] if last['VOL_SMA_20'] > 0 else 0
+            if vol_ratio < 1.3: continue
+            
+            # 4. RSI Zona Buy (45-68)
+            if not (45 <= last['RSI'] <= 68): continue
+            
+            # 5. Value Transaksi > 5 Miliar
+            if (last['close'] * last['volume']) < 5_000_000_000: continue
 
+            # --- SCORING ---
+            score = 50
+            reasons = []
+            
+            if vol_ratio > 2.0:
+                score += 15
+                reasons.append("🔥 High Vol")
+            elif vol_ratio > 1.5:
+                score += 10
+                reasons.append("✅ Vol Spike")
+                
+            if last['close'] > last['EMA_20'] > last['EMA_50']:
+                score += 20
+                reasons.append("📈 Uptrend")
+                
+            if last['close'] >= (last['high'] * 0.98):
+                score += 10
+                reasons.append("💪 Strong Close")
+            
+            if score >= 70:
+                candidates.append({
+                    'symbol': ticker,
+                    'price': int(last['close']),
+                    'change': round(change_pct, 2),
+                    'rsi': round(last['RSI'], 1),
+                    'vol': round(vol_ratio, 1),
+                    'score': score,
+                    'reasons': ", ".join(reasons)
+                })
+                
+            time.sleep(0.2) # Jeda agar API tidak limit
+            
+        except Exception as e:
+            print(f"Skip {ticker}: {e}")
+            continue
+
+    # Kirim Hasil
     candidates.sort(key=lambda x: x['score'], reverse=True)
-    top_picks = candidates[:3]
+    top3 = candidates[:3]
     
-    if top_picks:
+    if top3:
         msg = f"🚀 <b>BSJP PREMIUM SIGNAL</b> 📅 {datetime.now().strftime('%d/%m')}\n\n"
-        for c in top_picks:
-            msg += f"💎 <b>{c['symbol']}</b> (Score: {c['score']})\n"
-            msg += f"Price: {c['price']} (+{c['change']}%)\n"
-            msg += f"🎯 TP: {c['tp']} | 🛑 SL: {c['sl']}\n"
-            msg += f"Notes: {c['reasons']}\n\n"
-        msg += "<i>Disclaimer On. DYOR.</i>"
+        for s in top3:
+            tp = int(s['price'] * 1.03)
+            sl = int(s['price'] * 0.98)
+            msg += f"💎 <b>{s['symbol']}</b> (Score: {s['score']})\n"
+            msg += f"Price: {s['price']} (+{s['change']}%)\n"
+            msg += f"RSI: {s['rsi']} | Vol: {s['vol']}x\n"
+            msg += f"🎯 TP: {tp} | 🛑 SL: {sl}\n"
+            msg += f"<i>{s['reasons']}</i>\n\n"
+        msg += "<i>Disclaimer On. High Risk.</i>"
         send_telegram(msg)
     else:
-        send_telegram("⚠️ <b>No Signal Today</b>\nPasar tidak memenuhi kriteria keamanan (High Risk).")
-        print("No candidates found.")
+        send_telegram("⚠️ <b>No Signal Today</b>\nPasar tidak kondusif (High Risk).")
 
-# --- FITUR DETAK JANTUNG ---
+# --- JADWAL & HEARTBEAT ---
 def morning_check():
-    msg = (
-        "☀️ <b>Selamat Pagi!</b>\n"
-        "Bot BSJP aktif dan siap memantau pasar hari ini.\n"
-        f"Server Time: {datetime.now().strftime('%H:%M')} WIB"
-    )
+    msg = f"☀️ <b>Bot Standby</b>\nJam: {datetime.now().strftime('%H:%M')} WIB\nMenunggu sesi sore."
     send_telegram(msg)
-    print("[HEARTBEAT] Morning check sent.")
 
 def log_alive():
-    # Print ke console Coolify saja, jangan kirim ke Telegram (biar tidak spam)
-    print(f"[HEARTBEAT] Bot is alive at {datetime.now().strftime('%H:%M:%S')}")
+    print(f"[ALIVE] {datetime.now().strftime('%H:%M:%S')}")
 
-# --- JADWAL ---
-# 1. Cek pagi jam 08:30 WIB
 schedule.every().day.at("08:30").do(morning_check)
-
-# 2. Analisa jam 14:50 WIB
 schedule.every().day.at("14:50").do(analyze_market)
-
-# 3. Log console setiap 1 jam
 schedule.every(1).hours.do(log_alive)
 
 if __name__ == "__main__":
-    print("🤖 Bot Starting...")
+    print("🤖 Bot Started (Pure Pandas Mode)...")
+    send_telegram("✅ <b>Deploy Berhasil!</b>\nBot BSJP aktif dengan mode Manual Calculation.")
     
-    # Kirim notifikasi saat pertama kali DEPLOY/RESTART
-    start_msg = (
-        "🤖 <b>Bot BSJP Online!</b>\n"
-        "Status: System Restarted / Deployed.\n"
-        "Menunggu jadwal screening berikutnya."
-    )
-    send_telegram(start_msg)
-    
-    # Loop utama
     while True:
         schedule.run_pending()
         time.sleep(10)
