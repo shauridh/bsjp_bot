@@ -1,5 +1,7 @@
 requests
 pandas
-pandas_ta
+# Install pandas_ta langsung dari development branch (fix error PyPI)
+git+https://github.com/twopirllc/pandas-ta.git@development
 schedule
 pytz
+numpy<2.0.0
