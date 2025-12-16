@@ -12,7 +12,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "KOSONG")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "KOSONG")
 
 # --- LIST SAHAM (LIQUID 100) ---
-# Kita gunakan list likuid agar screening Value > 5 Milyar lebih efektif
 TICKERS = [
     "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BRIS", "ARTO", "BBHI", "BNGA", "PNBN", "BDMN", "BJBR",
     "ANTM", "INCO", "MDKA", "TINS", "MBMA", "NCKL", "HRUM", "BRMS", "PSAB",
@@ -37,7 +36,7 @@ def get_market_data(ticker):
     url = f"https://api.goapi.io/stock/idx/{ticker}/historical"
     headers = {"X-API-KEY": GOAPI_KEY}
     try:
-        # Ambil data 200 hari (agar bisa cek Near 52 Week High / Harga Tertinggi Tahunan)
+        # Ambil data 200 hari
         params = {"to": datetime.now().strftime("%Y-%m-%d"), "limit": 200}
         res = requests.get(url, headers=headers, params=params, timeout=10).json()
         
@@ -54,53 +53,41 @@ def get_market_data(ticker):
     except: return None
 
 def add_indicators(df):
-    # 1. Volume MA 20 (Sesuai Syarat PDF)
+    # 1. Volume MA 20
     df['VOL_SMA_20'] = df['volume'].rolling(window=20).mean()
-    
-    # 2. Price MA 5 (Sesuai Syarat PDF)
+    # 2. Price MA 5
     df['MA_5'] = df['close'].rolling(window=5).mean()
-    
-    # 3. EMA untuk Trend Tambahan (Visual)
+    # 3. EMA 20 (Visual Trend)
     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
-    
     return df
 
-# --- CALCULATOR TRADING PLAN ---
+# --- TRADING PLAN CALCULATOR ---
 def calculate_trading_plan(df, price, high_period):
-    # Support Resistance Simple
     support = df['low'].tail(20).min()
     resistance = df['high'].tail(20).max()
     
-    # Stop Loss (Sedikit di bawah support)
     sl = int(support * 0.98)
-    
-    # TP Berjenjang
     risk = price - sl
     if risk <= 0: risk = price * 0.05
+    
     tp1 = int(price + (risk * 1.5))
     tp2 = int(price + (risk * 2.5))
     
-    # Cek Posisi terhadap High (Near 52 Week High)
-    # Rasio harga sekarang dibanding harga tertinggi periode ini
     high_ratio = price / high_period 
-    
-    # Kondisi Trend
     trend_txt = "Strong Uptrend 🚀" if price > df.iloc[-1]['EMA_20'] else "Reversal/Weak ⚠️"
     
     return {
         "status": trend_txt,
         "high_ratio": high_ratio,
         "buy_area": f"{int(price*0.99)} - {int(price)}",
-        "sl": sl,
-        "tp1": tp1, 
-        "tp2": tp2,
-        "support": int(support),
-        "resistance": int(resistance)
+        "sl": sl, "tp1": tp1, "tp2": tp2,
+        "support": int(support), "resistance": int(resistance)
     }
 
-# --- LOGIKA UTAMA SESUAI PDF ---
+# --- LOGIKA UTAMA SCREENER PDF ---
 def analyze_bsjp_pdf_rules():
-    send_telegram("🔍 <b>SCREENING BSJP (PDF RULES)</b>\nMencari saham momentum volume meledak > 2x...")
+    print("Mulai Screening BSJP (Mode PDF)...")
+    send_telegram("🔍 <b>SCREENING BSJP (PDF RULES)</b>\nSedang mengecek volume meledak...")
     
     candidates = []
     
@@ -112,27 +99,22 @@ def analyze_bsjp_pdf_rules():
             df = add_indicators(df)
             last = df.iloc[-1]
             
-            # --- RULE 1: HARGA > 50 ---
+            # --- RULE FILTER PDF ---
             if last['close'] <= 50: continue
             
-            # --- RULE 2: VALUE TRANSAKSI > 5 MILYAR ---
             value_tx = last['close'] * last['volume']
             if value_tx < 5_000_000_000: continue
             
-            # --- RULE 3: PRICE > MA 5 (Short Term Uptrend) ---
             if last['close'] < last['MA_5']: continue
             
-            # --- RULE 4: NEAR HIGH (> 70% dari High Tertinggi) ---
-            highest_price = df['high'].max() # High selama 200 hari terakhir
+            highest_price = df['high'].max()
             if last['close'] < (0.7 * highest_price): continue
             
-            # --- RULE 5 (THE KILLER): VOLUME > 2x VOLUME MA 20 ---
-            # Volume hari ini harus 2 kali lipat rata-rata
             if last['VOL_SMA_20'] == 0: continue
             vol_ratio = last['volume'] / last['VOL_SMA_20']
             
-            if vol_ratio >= 2.0: # WAJIB DI ATAS 2.0 SESUAI PDF
-                
+            # SYARAT UTAMA: VOLUME > 2x Volume Rata-Rata
+            if vol_ratio >= 2.0:
                 plan = calculate_trading_plan(df, last['close'], highest_price)
                 
                 candidates.append({
@@ -140,52 +122,50 @@ def analyze_bsjp_pdf_rules():
                     'price': int(last['close']),
                     'change': round(((last['close'] - df.iloc[-2]['close'])/df.iloc[-2]['close'])*100, 2),
                     'vol_x': round(vol_ratio, 1),
-                    'val_b': round(value_tx / 1_000_000_000, 1), # Dalam Milyar
+                    'val_b': round(value_tx / 1_000_000_000, 1),
                     'plan': plan
                 })
             
             time.sleep(0.2)
         except: continue
 
-    # Urutkan dari Volume Spike Tertinggi
     candidates.sort(key=lambda x: x['vol_x'], reverse=True)
     top = candidates[:5]
     
     if top:
         msg = f"💎 <b>HASIL SCREENER BSJP (PDF)</b>\n📅 {datetime.now().strftime('%d/%m/%Y')}\n"
-        
         for c in top:
             p = c['plan']
             msg += f"\n=========================\n"
             msg += f"🔥 <b>{c['symbol']}</b> (+{c['change']}%)\n"
             msg += f"📊 Vol Spike: <b>{c['vol_x']}x</b> Avg\n"
             msg += f"💰 Value: {c['val_b']} Milyar\n"
-            msg += f"📈 Posisi: {int(p['high_ratio']*100)}% dari High\n"
-            
-            msg += f"📋 <b>TRADING PLAN:</b>\n"
-            msg += f"🛒 Buy Area: {p['buy_area']}\n"
+            msg += f"📋 <b>PLAN:</b> Buy {p['buy_area']}\n"
             msg += f"🎯 TP1: {p['tp1']} | TP2: {p['tp2']}\n"
-            msg += f"🛑 Stop Loss: < {p['sl']}\n"
-            
-        msg += "\n=========================\n<i>Rule: Price>MA5, Vol>2xMA20, Val>5M</i>"
+            msg += f"🛑 SL: < {p['sl']}\n"
         send_telegram(msg)
     else:
-        send_telegram("⚠️ <b>ZONK!</b> Tidak ada saham yang lolos filter ketat PDF hari ini.\n(Syarat Vol > 2x Avg tidak terpenuhi)")
+        send_telegram("⚠️ <b>ZONK!</b> Tidak ada saham Vol > 2x Avg hari ini.")
 
 # --- JADWAL ---
 def heartbeat():
-    send_telegram("☀️ <b>Bot BSJP Standby</b>\nMode: Strict PDF Rules (Vol > 2x)")
+    send_telegram("☀️ Bot BSJP Standby")
 
-# Jadwal cek sore
 schedule.every().day.at("08:30").do(heartbeat)
-[span_7](start_span)schedule.every().day.at("15:16").do(analyze_bsjp_pdf_rules) # Sesuai PDF jam 14:45[span_7](end_span)
+# Saya ubah ke 14:45 untuk besok
+schedule.every().day.at("14:45").do(analyze_bsjp_pdf_rules)
 
 if __name__ == "__main__":
-    print("🤖 Bot BSJP (PDF Rule) Started...")
+    print("🤖 Bot BSJP Started...")
     
-    # UNCOMMENT BAWAH INI JIKA MAU TES SEKARANG
-    # analyze_bsjp_pdf_rules()
-    
+    # --- [PENTING] BARIS INI AKAN MENJALANKAN BOT LANGSUNG SAAT START ---
+    # Tidak perlu menunggu jadwal, langsung jalan sekarang.
+    try:
+        analyze_bsjp_pdf_rules() 
+    except Exception as e:
+        print(f"Error direct run: {e}")
+    # --------------------------------------------------------------------
+
     while True:
         try:
             schedule.run_pending()
