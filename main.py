@@ -171,7 +171,7 @@ def morning_check():
     send_telegram("☀️ <b>Bot Ready</b>\n09:20 -> Scalping Signal\n14:50 -> BSJP Signal")
 
 schedule.every().day.at("08:30").do(morning_check)
-schedule.every().day.at("09:20").do(analyze_morning_entry) # Sinyal Pagi
+schedule.every().day.at("09:30").do(analyze_morning_entry) # Sinyal Pagi
 schedule.every().day.at("14:50").do(analyze_bsjp)          # Sinyal Sore
 
 if __name__ == "__main__":
