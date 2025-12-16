@@ -178,7 +178,7 @@ def heartbeat():
 
 # Jadwal cek sore
 schedule.every().day.at("08:30").do(heartbeat)
-[span_7](start_span)schedule.every().day.at("15:21").do(analyze_bsjp_pdf_rules) # Sesuai PDF jam 14:45[span_7](end_span)
+[span_7](start_span)schedule.every().day.at("15:16").do(analyze_bsjp_pdf_rules) # Sesuai PDF jam 14:45[span_7](end_span)
 
 if __name__ == "__main__":
     print("🤖 Bot BSJP (PDF Rule) Started...")
