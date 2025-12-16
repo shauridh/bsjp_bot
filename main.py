@@ -12,33 +12,24 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "KOSONG")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "KOSONG")
 
 # --- LIST SAHAM LIKUID (THE LIQUID 100) ---
-# Campuran Bluechip (Aman) & Second Liner (Volatile)
 TICKERS = [
-    # BANKING (BIG & DIGITAL)
+    # BANKING
     "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BRIS", "ARTO", "BBHI", "BNGA", "PNBN", "BDMN", "BJBR",
-    
     # MINERAL & METAL
     "ANTM", "INCO", "MDKA", "TINS", "MBMA", "NCKL", "HRUM", "BRMS", "PSAB",
-    
-    # ENERGY (COAL & OIL)
+    # ENERGY
     "ADRO", "PTBA", "ITMG", "UNTR", "INDY", "BUMI", "MEDC", "PGAS", "AKRA", "ELSA", "DOID", "KKGI",
-    
     # CONSUMER & RETAIL
     "ICBP", "INDF", "UNVR", "MYOR", "KLBF", "SIDO", "AMRT", "MIDI", "ACES", "MAPI", "MAPA", "ERAA", "CMRY",
-    
     # TECH & DIGITAL
     "GOTO", "EMTK", "BUKA", "WIRG", "MTDL", "BELI",
-    
     # PROPERTY & CONSTRUCTION
     "BSDE", "CTRA", "SMRA", "PWON", "ASRI", "PTPP", "WIKA", "ADHI", "WEGE", "TOTL",
-    
     # INFRA & TELCO
     "TLKM", "EXCL", "ISAT", "JSMR", "META", "TOWR", "TBIG", "CENT",
-    
-    # BASIC IND & POULTRY
+    # BASIC IND
     "ASII", "SMGR", "INTP", "JPFA", "CPIN", "INKP", "TKIM", "BRPT", "TPIA", "ESSA", "MAIN",
-    
-    # HIGH VOLATILITY / TRADERS FAVORITE (Gorengan Likuid)
+    # TRADERS FAVORITE (VOLATILE)
     "GJTL", "AUTO", "DRMA", "IMAS", "SRTG", "DEWA", "ENRG", "KIJA", "SSIA", "MAHA", 
     "GATR", "CUAN", "PANI", "BREN", "AMMN", "RAJA", "WINS", "HATM"
 ]
@@ -87,28 +78,26 @@ def add_indicators(df):
     
     return df
 
-# --- OTAK BARU: CALCULATOR TRADING PLAN ---
+# --- SWING TRADING PLAN CALCULATOR ---
 def calculate_trading_plan(df, price):
-    # 1. Tentukan Support & Resistance (Low/High 20 hari terakhir)
+    # 1. Support & Resistance (Low/High 20 hari)
     support_swing = df['low'].tail(20).min()
     resistance_swing = df['high'].tail(20).max()
     
-    # 2. Stop Loss (2% di bawah support terdekat)
+    # 2. Stop Loss (2% di bawah support)
     sl = int(support_swing * 0.98)
     
-    # 3. Hitung TP Berjenjang (Risk Based)
+    # 3. Hitung TP Berjenjang
     risk = price - sl
-    # Fallback risk minimal jika harga mepet support
-    if risk <= 0: risk = price * 0.05 
+    if risk <= 0: risk = price * 0.05 # Fallback logic
     
     tp1 = int(price + (risk * 1.5))
     tp2 = int(price + (risk * 2.5))
     tp3 = int(price + (risk * 3.5))
     
-    # 4. Tentukan Kondisi Trend
+    # 4. Kondisi Trend
     last = df.iloc[-1]
     trend_status = "Sideways ➡️"
-    
     if last['close'] > last['EMA_20'] > last['EMA_50']:
         trend_status = "Strong Uptrend 🚀"
     elif last['close'] < last['EMA_20'] and last['close'] > last['EMA_50']:
@@ -116,7 +105,7 @@ def calculate_trading_plan(df, price):
     elif last['close'] < last['EMA_50']:
         trend_status = "Downtrend 🔻"
         
-    # 5. Label Risiko (Jarak ke SL)
+    # 5. Risk Label
     risk_pct = ((price - sl) / price) * 100
     risk_label = "🟢 Low Risk" if risk_pct < 5.0 else "🔴 High Risk"
     
@@ -143,15 +132,12 @@ def analyze_morning_entry():
             last = df.iloc[-1]
             prev = df.iloc[-2]
             
-            # Logic Scalping:
-            # 1. Harga Hijau (Close > Open)
+            # Logic Pagi (Volatile):
             if last['close'] <= last['open']: continue
-            
-            # 2. Kenaikan 1% - 5%
             change_pct = ((last['close'] - prev['close']) / prev['close']) * 100
-            if not (1.0 <= change_pct <= 5.0): continue
+            if not (1.0 <= change_pct <= 6.0): continue # Range aman
             
-            # 3. Volume Shock (>20% rata-rata harian padahal baru pagi)
+            # Vol shock
             vol_target = last['VOL_SMA_20'] * 0.20
             if last['volume'] < vol_target: continue
 
@@ -161,31 +147,26 @@ def analyze_morning_entry():
                 'change': round(change_pct, 2),
                 'vol': round((last['volume']/last['VOL_SMA_20'])*100, 1)
             })
-            # Jeda agar tidak kena limit
             time.sleep(0.2)
         except: continue
 
-    # Urutkan berdasarkan ledakan volume
     candidates.sort(key=lambda x: x['vol'], reverse=True)
-    top = candidates[:5] # Ambil 5 teratas
+    top = candidates[:5]
     
     if top:
         msg = "⚡ <b>MORNING SCALPING (09:20 WIB)</b>\n"
         msg += "<i>High Risk - Fast Trade Strategy</i>\n\n"
         for c in top:
-            tp = int(c['price'] * 1.02) # TP 2%
-            sl = int(c['price'] * 0.98) # SL 2%
+            tp = int(c['price'] * 1.02)
+            sl = int(c['price'] * 0.98)
             msg += f"🚀 <b>{c['symbol']}</b> (+{c['change']}%)\n"
             msg += f"Vol Progress: {c['vol']}%\n"
             msg += f"TP: {tp} | SL: {sl}\n\n"
         send_telegram(msg)
-    else:
-        # Opsional: Lapor kalau sepi
-        pass 
 
-# --- JADWAL 2: SORE (BSJP + SWING DASHBOARD 14:50) ---
+# --- JADWAL 2: SORE (BSJP + SWING PLAN 14:50) ---
 def analyze_bsjp_swing():
-    send_telegram("📊 <b>MARKET CLOSE DASHBOARD (14:50 WIB)</b>\nScreening BSJP & Swing Plan...")
+    send_telegram("📊 <b>MARKET CLOSE DASHBOARD</b>\nScreening Data...")
     
     candidates = []
     
@@ -198,17 +179,14 @@ def analyze_bsjp_swing():
             last = df.iloc[-1]
             prev = df.iloc[-2]
             
-            # --- FILTER AWAL (Volume & Kenaikan) ---
             change_pct = ((last['close'] - prev['close']) / prev['close']) * 100
             vol_ratio = last['volume'] / last['VOL_SMA_20'] if last['VOL_SMA_20'] > 0 else 0
             
-            # Kriteria Lolos Screening:
-            # 1. Naik 0.5% - 8% (Jangan arah, bahaya guyur)
-            # 2. Volume > 1.3x Rata-rata (Akumulasi Valid)
-            # 3. RSI Sehat (Tidak Overbought > 75)
-            if (0.5 <= change_pct <= 8.0) and (vol_ratio >= 1.3) and (45 <= last['RSI'] <= 75):
+            # --- FILTER DIPERLONGGAR (Agar Data Masuk) ---
+            # 1. Harus Hijau (Change > 0.1%)
+            # 2. Volume minimal 80% dari rata-rata (0.8x) -> Tidak harus 1.3x kalau market sepi
+            if (change_pct >= 0.1) and (vol_ratio >= 0.8):
                 
-                # HITUNG TRADING PLAN LENGKAP
                 plan = calculate_trading_plan(df, last['close'])
                 
                 candidates.append({
@@ -222,9 +200,9 @@ def analyze_bsjp_swing():
             time.sleep(0.2)
         except: continue
 
-    # Urutkan dari Volume Tertinggi (Indikasi Big Money)
+    # Urutkan dari Volume Rasio Tertinggi
     candidates.sort(key=lambda x: x['vol_x'], reverse=True)
-    top = candidates[:5] # Tampilkan 5 Saham Terbaik
+    top = candidates[:5] 
     
     if top:
         msg = f"💎 <b>REKOMENDASI SAHAM HARI INI</b>\n📅 {datetime.now().strftime('%d/%m/%Y')}\n"
@@ -246,23 +224,27 @@ def analyze_bsjp_swing():
         msg += "\n=========================\n<i>Disclaimer On. Do Your Own Research.</i>"
         send_telegram(msg)
     else:
-        send_telegram("⚠️ Tidak ada saham yang memenuhi kriteria BSJP hari ini.")
+        send_telegram("⚠️ Market Sangat Sepi. Tidak ada saham hijau dengan volume valid.")
 
-# --- JADWAL & LOOP ---
+# --- JADWAL ---
 def heartbeat():
     send_telegram("☀️ <b>Super Bot Saham Online</b>\nList: 100+ Saham Likuid\nJadwal: 09:20 & 14:50")
 
-# Setup Jadwal (Waktu Server / WIB pastikan sama)
+# Setup Jadwal
 schedule.every().day.at("08:30").do(heartbeat)
 schedule.every().day.at("09:20").do(analyze_morning_entry) 
-schedule.every().day.at("14:50").do(analyze_bsjp_swing)
+schedule.every().day.at("15:05").do(analyze_bsjp_swing)
 
 if __name__ == "__main__":
-    print("🤖 Super Bot (Liquid 100 + Scalp + Swing) Started...")
+    print("🤖 Bot Started...")
+    
+    # -- JIKA INGIN TES LANGSUNG, HAPUS TANDA PAGAR DI BAWAH INI --
+    # analyze_bsjp_swing() 
+    
     while True:
         try:
             schedule.run_pending()
             time.sleep(10)
         except Exception as e:
-            print(f"Error Scheduler: {e}")
+            print(f"Error: {e}")
             time.sleep(10)
