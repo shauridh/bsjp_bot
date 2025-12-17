@@ -11,26 +11,27 @@ from urllib.parse import quote
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# --- LIST SAHAM OTOMATIS (75 Saham Teraktif IDX) ---
+# --- LIST KHUSUS SAHAM MURAH (< Rp 700) ---
+# Syarat: Liquid (Ada Volume), Bukan Gocap Mati (50), Sering Rame
 AUTO_WATCHLIST = [
-    # BANKS
-    'BBCA.JK', 'BBRI.JK', 'BMRI.JK', 'BBNI.JK', 'BRIS.JK', 'BBTN.JK', 'ARTO.JK',
-    # ENERGY & MINING
-    'ADRO.JK', 'PTBA.JK', 'ITMG.JK', 'PGAS.JK', 'MEDC.JK', 'AKRA.JK', 'ANTM.JK', 
-    'INCO.JK', 'MDKA.JK', 'TINS.JK', 'HRUM.JK', 'BUMI.JK', 'ENRG.JK', 'MBMA.JK',
-    # INFRA & TELCO
-    'TLKM.JK', 'EXCL.JK', 'ISAT.JK', 'TOWR.JK', 'TBIG.JK', 'JSMR.JK', 'PGEO.JK',
-    # CONSUMER & RETAIL
-    'ASII.JK', 'UNTR.JK', 'ICBP.JK', 'INDF.JK', 'MYOR.JK', 'KLBF.JK', 'UNVR.JK', 
-    'AMRT.JK', 'MAPI.JK', 'ACES.JK', 'CPIN.JK', 'JPFA.JK',
-    # TECH & DIGITAL
-    'GOTO.JK', 'BUKA.JK', 'EMTK.JK', 'SCMA.JK',
-    # PROPERTY & CONSTRUCTION
-    'BSDE.JK', 'CTRA.JK', 'PWON.JK', 'SMRA.JK', 'PANI.JK',
-    # BIG CAPS / CONGLOMERATE
-    'AMMN.JK', 'BREN.JK', 'TPIA.JK', 'BRPT.JK', 'CUAN.JK', 'GGRM.JK', 'HMSP.JK',
-    # OTHERS
-    'SRTG.JK', 'ESSA.JK', 'INKP.JK', 'TKIM.JK', 'SMGR.JK', 'INTP.JK'
+    # SAHAM BAKRIE & ENERGY (Sering Rame)
+    'BUMI.JK', 'BRMS.JK', 'DEWA.JK', 'ENRG.JK', 'BIPI.JK', 'ELSA.JK',
+    
+    # PROPERTI & KONSTRUKSI (Lagi Murah)
+    'APLN.JK', 'ASRI.JK', 'BKSL.JK', 'KIJA.JK', 'LPKR.JK', 'LPCK.JK', 
+    'BEST.JK', 'DILD.JK', 'PTPP.JK', 'WIKA.JK', 'ADHI.JK', 'WG.JK',
+    
+    # MEDIA & TECH
+    'SCMA.JK', 'MNCN.JK', 'BMTR.JK', 'VIVA.JK', 'BUKA.JK', 'GOTO.JK',
+    'MLPT.JK', 'WIRG.JK',
+    
+    # RETAIL & CONSUMER
+    'MPPA.JK', 'RALS.JK', 'SIDO.JK', 'WOOD.JK', 'CLEO.JK', 'CAMP.JK',
+    
+    # TRANSPORT & LAINNYA
+    'CARS.JK', 'IPCC.JK', 'IPCM.JK', 'TRAM.JK', 'GIAA.JK', 'KAEF.JK',
+    'IRRA.JK', 'SAME.JK', 'ZINC.JK', 'ANTM.JK', # ANTM kadang <1500 tapi liquid
+    'HRUM.JK', 'TINS.JK'
 ]
 
 def send_telegram(message):
@@ -58,7 +59,6 @@ def get_latest_news(ticker_clean):
 def analyze_stock(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # Ambil data historis 3 bulan ke belakang
         df = stock.history(period="3mo", interval="1d")
         
         if len(df) < 50: return False
@@ -82,60 +82,56 @@ def analyze_stock(ticker):
         avg_vol = float(last['VolAvg'])
         ticker_clean = ticker.replace(".JK", "")
         
+        # FILTER HARGA MAKSIMAL 800 (Jaga-jaga kalau ada yang naik tinggi)
+        if price > 800: return False
+        
         signals = []
         signal_type = ""
 
-        # 1. GOLDEN CROSS (Swing)
+        # 1. GOLDEN CROSS
         if prev['SMA20'] < prev['SMA50'] and last['SMA20'] > last['SMA50']:
-            signals.append(f"✅ <b>GOLDEN CROSS (Swing)</b>\nTrend baru mau naik.")
+            signals.append(f"✅ <b>GOLDEN CROSS</b>\nTrend reversal. Potensi naik.")
             signal_type = "SWING"
 
-        # 2. RSI OVERSOLD (Rebound)
+        # 2. RSI OVERSOLD
         if last['RSI'] < 30:
-            signals.append(f"🎣 <b>RSI OVERSOLD: {last['RSI']:.1f}</b>\nPotensi Pantulan (Rebound).")
+            signals.append(f"🎣 <b>RSI OVERSOLD: {last['RSI']:.1f}</b>\nSudah murah banget.")
             signal_type = "REBOUND"
 
-        # 3. VOLUME SPIKE (BSJP)
+        # 3. VOLUME SPIKE (Paling Penting buat Saham Murah)
         if vol > (avg_vol * 2.5) and price > prev['Close']:
-            signals.append(f"🌇 <b>SINYAL BSJP (Volume)</b>\nVol: {int(vol/avg_vol)}x Lipat Avg.")
+            signals.append(f"🌇 <b>VOLUME MELEDAK ({int(vol/avg_vol)}x)</b>\nBandar lagi main barang ini.")
             signal_type = "BSJP"
 
-        # --- HITUNG PLAN TRADING (TP & SL) ---
+        # --- TRADING PLAN ---
         if signals:
-            # Rumus Default (Risk Reward 1:2)
-            buy_price = price
+            buy_price = int(price)
             
-            # SL = Cutloss di -4%
-            sl_price = int(buy_price * 0.96)
+            # SL = Lebih longgar buat saham murah (volatil) -> 5%
+            sl_price = int(buy_price * 0.95)
             
-            # TP1 = Cuan Bungkus +3%
-            tp1_price = int(buy_price * 1.03)
+            # TP = Target lebih optimis -> 5% & 10%
+            tp1_price = int(buy_price * 1.05)
+            tp2_price = int(buy_price * 1.10)
             
-            # TP2 = Let Profit Run +8%
-            tp2_price = int(buy_price * 1.08)
-            
-            # Jika sinyal REBOUND (RSI < 30), SL harus lebih ketat karena lawan arus
-            if signal_type == "REBOUND":
-                 sl_price = int(buy_price * 0.97) # SL -3%
-                 tp1_price = int(buy_price * 1.025) # TP +2.5%
+            if signal_type == "REBOUND": # Kalau nangkep pisau jatuh, SL ketat
+                 sl_price = int(buy_price * 0.96)
 
             news_update = get_latest_news(ticker_clean)
             gf_link = f"https://www.google.com/finance/quote/{ticker_clean}:IDX"
             
-            # FORMAT PESAN LENGKAP
-            msg = f"📊 <b>SINYAL: {ticker_clean}</b>\n"
-            msg += f"Harga Skrg: {int(price)}\n\n"
+            msg = f"📊 <b>SINYAL: {ticker_clean}</b>\nHarga: {int(price)}\n"
             msg += "\n".join(signals)
             
-            msg += f"\n\n🎯 <b>TRADING PLAN:</b>\n"
-            msg += f"🟢 <b>BUY:</b> {int(price)} - {int(price*1.01)}\n"
-            msg += f"💰 <b>TP 1:</b> {tp1_price} (3-4%)\n"
-            msg += f"💰 <b>TP 2:</b> {tp2_price} (8%+)\n"
+            msg += f"\n\n🎯 <b>PLAN (Saham Murah):</b>\n"
+            msg += f"🟢 <b>BUY:</b> {int(price)}\n"
+            msg += f"💰 <b>TP 1:</b> {tp1_price} (5%)\n"
+            msg += f"💰 <b>TP 2:</b> {tp2_price} (10%)\n"
             msg += f"🛡️ <b>SL:</b> {sl_price} (Cutloss)\n"
 
             if news_update:
-                msg += f"\n<b>Berita Terkait:</b>\n{news_update}"
-            msg += f"\n\n🔗 <a href='{gf_link}'>Cek Grafik</a>"
+                msg += f"\n<b>Berita:</b>\n{news_update}"
+            msg += f"\n\n🔗 <a href='{gf_link}'>Grafik</a>"
             
             send_telegram(msg)
             return True
@@ -146,7 +142,7 @@ def analyze_stock(ticker):
 
 def run_bot():
     count_stock = len(AUTO_WATCHLIST)
-    send_telegram(f"🤖 <b>BOT UPDATE (TP/SL) AKTIF</b>\nMemantau {count_stock} Saham.\nFitur: Sinyal + Trading Plan Lengkap")
+    send_telegram(f"🤖 <b>BOT SAHAM RECEH (<700) AKTIF</b>\nMemantau {count_stock} Saham Murah Meriah.\nFitur: Volume Spike, Golden Cross")
     
     cycle = 0
     while True:
@@ -159,20 +155,20 @@ def run_bot():
         if cycle == 0: should_scan = True 
         
         if hari_kerja:
-            if jam == 9 and menit == 45 and cycle % 60 == 0: should_scan = True
+            if jam == 9 and menit == 20 and cycle % 60 == 0: should_scan = True
             if jam == 12 and menit == 15 and cycle % 60 == 0: should_scan = True
             if jam == 14 and menit == 45 and cycle % 60 == 0: should_scan = True
 
         if should_scan:
-            print(f"[{now.strftime('%H:%M')}] 🚀 Scanning Pasar...")
+            print(f"[{now.strftime('%H:%M')}] 🚀 Scanning Saham Receh...")
             found = 0
             for stock in AUTO_WATCHLIST:
                 if analyze_stock(stock): found += 1
                 time.sleep(1.5) 
             
-            print(f"Scan Selesai. Sinyal: {found}")
+            print(f"Selesai. Sinyal: {found}")
             if found == 0 and jam == 16:
-                send_telegram("ℹ️ Penutupan: Tidak ada sinyal kuat hari ini.")
+                send_telegram("ℹ️ Pasar Sepi: Belum ada gorengan matang hari ini.")
 
         if menit == 0 and cycle % 60 == 0:
             print(f"[{now.strftime('%H:%M')}] Standby...", flush=True)
