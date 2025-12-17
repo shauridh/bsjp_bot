@@ -1,223 +1,164 @@
-import os
-import time
 import requests
 import pandas as pd
-import schedule
-from datetime import datetime
-import pytz
+import time
+import os
+import datetime
+from datetime import timedelta
 
 # --- KONFIGURASI ---
-GOAPI_KEY = os.getenv("GOAPI_KEY", "KOSONG")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "KOSONG")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "KOSONG")
+API_KEY = os.getenv("GOAPI_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BASE_URL = "https://api.goapi.io"
 
-# --- LIST SAHAM LIKUID (THE LIQUID 100) ---
-# List ini campuran Bluechip & Second Liner yang aman untuk swing/BSJP
-TICKERS = [
-    "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BRIS", "ARTO", "BBHI", "BNGA", "PNBN", "BDMN", "BJBR",
-    "ANTM", "INCO", "MDKA", "TINS", "MBMA", "NCKL", "HRUM", "BRMS", "PSAB",
-    "ADRO", "PTBA", "ITMG", "UNTR", "INDY", "BUMI", "MEDC", "PGAS", "AKRA", "ELSA", "DOID", "KKGI",
-    "ICBP", "INDF", "UNVR", "MYOR", "KLBF", "SIDO", "AMRT", "MIDI", "ACES", "MAPI", "MAPA", "ERAA", "CMRY",
-    "GOTO", "EMTK", "BUKA", "WIRG", "MTDL", "BELI",
-    "BSDE", "CTRA", "SMRA", "PWON", "ASRI", "PTPP", "WIKA", "ADHI", "WEGE", "TOTL",
-    "TLKM", "EXCL", "ISAT", "JSMR", "META", "TOWR", "TBIG", "CENT",
-    "ASII", "SMGR", "INTP", "JPFA", "CPIN", "INKP", "TKIM", "BRPT", "TPIA", "ESSA", "MAIN",
-    "GJTL", "AUTO", "DRMA", "IMAS", "SRTG", "DEWA", "ENRG", "KIJA", "SSIA", "MAHA", 
-    "GATR", "CUAN", "PANI", "BREN", "AMMN", "RAJA", "WINS", "HATM"
-]
+HEADERS = {"X-API-KEY": API_KEY, "Accept": "application/json"}
 
 def send_telegram(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
+    if not TELEGRAM_TOKEN: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
-    try: requests.post(url, data=data, timeout=10)
+    try: requests.post(url, data=data, timeout=5)
     except: pass
 
-def get_market_data(ticker):
-    url = f"https://api.goapi.io/stock/idx/{ticker}/historical"
-    headers = {"X-API-KEY": GOAPI_KEY}
+# --- FUNGSI PENCARI KANDIDAT DINAMIS ---
+def get_trending_candidates():
+    """Mencari 15 Saham yang sedang Trending/Ramai hari ini"""
     try:
-        # Ambil data 60 hari untuk analisa swing
-        params = {"to": datetime.now().strftime("%Y-%m-%d"), "limit": 60}
-        res = requests.get(url, headers=headers, params=params, timeout=10).json()
+        url = f"{BASE_URL}/stock/idx/trending"
+        res = requests.get(url, headers=HEADERS).json()
+        candidates = []
+        if res.get('status') == 'success':
+            # Ambil 15 teratas
+            for item in res['data']['results'][:15]:
+                ticker = item['symbol']
+                # Filter Saham 'Sampah' (Harga < 50)
+                # Anda bisa tambah filter lain, misal exclude 'GOTO' kalau tidak suka
+                if float(item['close']) > 50: 
+                    candidates.append(ticker)
+        return candidates
+    except: return []
+
+# --- ANALISA BSJP (BANDARMOLOGY) ---
+def analyze_bsjp(symbol):
+    try:
+        today = datetime.date.today().strftime("%Y-%m-%d")
         
-        if res.get('status') != 'success' or not res.get('data', {}).get('results'):
-            return None
+        # 1. Cek Data Bandar
+        url = f"{BASE_URL}/stock/idx/{symbol}/broker_summary"
+        params = {'date': today}
+        res = requests.get(url, headers=HEADERS, params=params).json()
+        
+        if res.get('status') == 'success':
+            data = res['data']
+            avg_buy = float(data.get('avg_buy', 0) or 0)
             
-        df = pd.DataFrame(res['data']['results'])
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.sort_values('date')
-        
-        for c in ['open', 'high', 'low', 'close', 'volume']:
-            df[c] = df[c].astype(float)
-        return df
-    except: return None
-
-def add_indicators(df):
-    # Volume MA 20
-    df['VOL_SMA_20'] = df['volume'].rolling(window=20).mean()
-    
-    # RSI
-    delta = df['close'].diff()
-    gain = delta.where(delta > 0, 0).ewm(alpha=1/14, adjust=False).mean()
-    loss = -delta.where(delta < 0, 0).ewm(alpha=1/14, adjust=False).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    
-    # Trend (EMA 20 & 50)
-    df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
-    df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
-    
-    return df
-
-# --- TRADING PLAN & SCORING ---
-def calculate_plan_and_score(df, ticker):
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-    price = last['close']
-    
-    # 1. Analisa Trend
-    trend_status = "Sideways"
-    trend_score = 0
-    
-    if price > last['EMA_20'] and last['EMA_20'] > last['EMA_50']:
-        trend_status = "Strong Uptrend 🚀"
-        trend_score = 30
-    elif price > last['EMA_20']:
-        trend_status = "Uptrend ✅"
-        trend_score = 20
-    elif price < last['EMA_50']:
-        trend_status = "Downtrend 🔻"
-        trend_score = -50 # JANGAN DIBELI
-        
-    # 2. Analisa Volume
-    vol_ratio = last['volume'] / last['VOL_SMA_20'] if last['VOL_SMA_20'] > 0 else 0
-    vol_score = 0
-    if vol_ratio >= 2.0: vol_score = 40      # Ledakan Besar
-    elif vol_ratio >= 1.5: vol_score = 30    # Akumulasi Kuat
-    elif vol_ratio >= 1.25: vol_score = 20   # Akumulasi Awal
-    
-    # 3. Analisa Candle
-    candle_score = 0
-    if price > last['open']: candle_score = 20 # Candle Hijau
-    change_pct = ((price - prev['close']) / prev['close']) * 100
-    if 2.0 <= change_pct <= 8.0: candle_score += 10 # Kenaikan Ideal
-    
-    # TOTAL SCORE
-    total_score = trend_score + vol_score + candle_score
-    
-    # --- HITUNG TRADING PLAN ---
-    support = df['low'].tail(20).min()
-    resistance = df['high'].tail(20).max()
-    
-    sl = int(support * 0.98)
-    risk = price - sl
-    if risk <= 0: risk = price * 0.05
-    
-    tp1 = int(price + (risk * 1.5))
-    tp2 = int(price + (risk * 2.5))
-    
-    risk_pct = ((price - sl) / price) * 100
-    risk_label = "Low Risk 🟢" if risk_pct < 5 else "Medium Risk 🟡"
-    if risk_pct > 10: risk_label = "High Risk 🔴"
-
-    return {
-        "score": total_score,
-        "status": trend_status,
-        "risk_label": risk_label,
-        "buy_area": f"{int(price*0.99)} - {int(price)}",
-        "sl": sl, "tp1": tp1, "tp2": tp2,
-        "change": round(change_pct, 2),
-        "vol_x": round(vol_ratio, 1),
-        "support": int(support),
-        "resistance": int(resistance)
-    }
-
-# --- LOGIKA REKOMENDASI TERBAIK (HYBRID BSJP) ---
-def analyze_best_recommendation():
-    print("Menganalisa Rekomendasi Terbaik...")
-    send_telegram("🤖 <b>SMART BSJP SCANNING...</b>\nStrategy: Trend + Vol Accumulation (>1.25x)")
-    
-    candidates = []
-    
-    for ticker in TICKERS:
-        try:
-            df = get_market_data(ticker)
-            if df is None or len(df) < 50: continue
+            # 2. Cek Harga Realtime
+            curr_res = requests.get(f"{BASE_URL}/stock/idx/prices?symbols={symbol}", headers=HEADERS).json()
+            curr_price = float(curr_res['data'][0]['close'])
             
-            df = add_indicators(df)
+            # LOGIKA BSJP:
+            # Kita mau saham yang harga sekarang SEDIKIT di atas harga rata-rata Bandar.
+            # Artinya Bandar sedang menjaga harga (Mark-up phase)
+            
+            if avg_buy > 0:
+                diff = ((curr_price - avg_buy) / avg_buy) * 100
+                
+                # Syarat: 
+                # 1. Harga diatas avg bandar (Positif)
+                # 2. Tapi tidak kemahalan (Max beda 4%)
+                if 0.1 < diff < 4.0:
+                    send_telegram(
+                        f"🌇 <b>SINYAL BSJP ({symbol})</b>\n"
+                        f"Harga: {int(curr_price)}\n"
+                        f"Avg Bandar: {int(avg_buy)}\n"
+                        f"Selisih: +{diff:.2f}%\n"
+                        f"<i>Saham ini sedang Trending & Diakumulasi!</i>"
+                    )
+                    return True # Ada sinyal
+    except: pass
+    return False
+
+# --- ANALISA SWING (GOLDEN CROSS) ---
+def analyze_swing(symbol):
+    try:
+        end_date = datetime.date.today()
+        start_date = end_date - timedelta(days=100)
+        url = f"{BASE_URL}/stock/idx/{symbol}/historical"
+        params = {'from': start_date, 'to': end_date}
+        res = requests.get(url, headers=HEADERS, params=params).json()
+        
+        if res.get('status') == 'success':
+            df = pd.DataFrame(res['data']['results']).sort_values('date')
+            df['SMA20'] = df['close'].rolling(20).mean()
+            df['SMA50'] = df['close'].rolling(50).mean()
+            
+            if len(df) < 55: return
+
             last = df.iloc[-1]
+            prev = df.iloc[-2]
             
-            # --- FILTER AWAL (Jaring Lebar) ---
-            # 1. Harga Minimal Hijau (Close > Open)
-            if last['close'] <= last['open']: continue
-            
-            # 2. Volume Minimal 1.25x (Tidak perlu 2x, yg penting akumulasi)
-            if last['VOL_SMA_20'] == 0: continue
-            if (last['volume'] / last['VOL_SMA_20']) < 1.25: continue
-            
-            # 3. Value Transaksi Minimal 5 Milyar (Biar bisa keluar)
-            value_tx = last['close'] * last['volume']
-            if value_tx < 5_000_000_000: continue
-            
-            # --- HITUNG SKOR & PLAN ---
-            data = calculate_plan_and_score(df, ticker)
-            
-            # Hanya masukkan yg skornya lumayan (Minimal 60)
-            # Ini menyaring saham 'tanggung'
-            if data['score'] >= 60:
-                candidates.append({
-                    'symbol': ticker,
-                    'data': data
-                })
-            
-            time.sleep(0.1) # Jeda dikit
-        except: continue
+            # Golden Cross: MA20 memotong MA50 ke atas
+            if prev['SMA20'] < prev['SMA50'] and last['SMA20'] > last['SMA50']:
+                send_telegram(f"🧘 <b>SWING ALERT ({symbol})</b>\nGOLDEN CROSS DETECTED!\nMA20 crossing MA50 Up.")
+    except: pass
 
-    # Urutkan berdasarkan SKOR TERTINGGI (Prioritas)
-    candidates.sort(key=lambda x: x['data']['score'], reverse=True)
-    top = candidates[:5]
+# --- MAIN LOOP ---
+def run_bot():
+    send_telegram("🤖 <b>BOT SAHAM DINAMIS AKTIF</b>\nSource: Trending Stocks IDX\nBSJP Time: 15:40 WIB")
     
-    if top:
-        msg = f"💎 <b>TOP PICKS HARI INI</b>\n📅 {datetime.now().strftime('%d/%m/%Y')}\n"
-        
-        for c in top:
-            d = c['data']
-            msg += f"\n=========================\n"
-            msg += f"🔥 <b>{c['symbol']}</b> (+{d['change']}%)\n"
-            msg += f"🏆 Score: <b>{d['score']}</b>/100\n"
-            msg += f"📊 Vol: {d['vol_x']}x Avg | {d['status']}\n"
-            msg += f"⚖️ {d['risk_label']}\n\n"
-            
-            msg += f"📋 <b>TRADING PLAN:</b>\n"
-            msg += f"🛒 Buy: {d['buy_area']}\n"
-            msg += f"🎯 TP1: {d['tp1']} | TP2: {d['tp2']}\n"
-            msg += f"🛑 SL: < {d['sl']} (Support: {d['support']})\n"
-            
-        msg += "\n=========================\n<i>Disclaimer On.</i>"
-        send_telegram(msg)
-    else:
-        send_telegram("⚠️ Market Sepi. Tidak ada saham dengan Skor > 60.")
+    cycle = 0
+    while True:
+        # Penyesuaian Waktu (Penting di VPS)
+        # Tambahkan timedelta jika jam VPS bukan WIB (misal UTC+7)
+        # Kode ini asumsi jam server sudah WIB atau kita pakai jam lokal sistem
+        now = datetime.datetime.now()
+        jam = now.hour
+        menit = now.minute
+        hari_kerja = now.weekday() < 5 # Senin-Jumat
 
-# --- JADWAL ---
-def heartbeat():
-    send_telegram("☀️ Bot Smart-BSJP Standby")
+        # A. SCALPING PAGI & SIANG (Cari Trending tiap 15 menit)
+        market_open = (9 <= jam < 15)
+        if hari_kerja and market_open and cycle % 15 == 0: 
+            print(f"[{now.strftime('%H:%M')}] Scanning Trending for Scalping...")
+            candidates = get_trending_candidates()
+            # Info singkat 3 saham teratas trending saja biar gak spam
+            if candidates:
+                top3 = ", ".join(candidates[:3])
+                # send_telegram(f"🔥 <b>TRENDING SAAT INI:</b> {top3}")
+                # (Opsional: Nyalakan baris diatas jika ingin tau apa yg lagi rame)
 
-schedule.every().day.at("08:30").do(heartbeat)
-schedule.every().day.at("14:50").do(analyze_best_recommendation)
+        # B. BSJP (BELI SORE JUAL PAGI) - THE GOLDEN TIME
+        # Kita set di 15:40 agar sempat analisa sebelum Pre-Closing (15:50)
+        if hari_kerja and jam == 15 and 40 <= menit <= 50:
+            if cycle % 5 == 0: # Cek per 5 menit dalam jendela waktu ini
+                print("🔍 MENCARI MUTIARA BSJP...")
+                # 1. Ambil List Saham Trending Hari Ini (Dinamis!)
+                candidates = get_trending_candidates()
+                send_telegram(f"🔍 <b>Menganalisa {len(candidates)} Saham Trending untuk BSJP...</b>")
+                
+                count = 0
+                for emiten in candidates:
+                    if analyze_bsjp(emiten): count += 1
+                    time.sleep(1) # Jeda sopan
+                
+                if count == 0:
+                    send_telegram("Hening. Tidak ada saham trending yang memenuhi kriteria BSJP aman hari ini.")
+                
+                # Tidur panjang sampai sesi BSJP selesai biar gak loop terus
+                time.sleep(600) 
+
+        # C. SWING (MALAM HARI)
+        if hari_kerja and jam == 19 and menit == 0 and cycle % 60 == 0:
+            print("Analisa Swing Malam...")
+            # Untuk swing, kita pakai Top 20 Trending juga, atau bisa list manual
+            candidates = get_trending_candidates()
+            for emiten in candidates:
+                analyze_swing(emiten)
+                time.sleep(1)
+
+        print(f"Standby... {now.strftime('%H:%M')}")
+        time.sleep(60) # Cek setiap 1 menit
+        cycle += 1
 
 if __name__ == "__main__":
-    print("🤖 Bot Smart-BSJP Started...")
-    
-    # --- JALANKAN SEKALI SAAT START AGAR USER PUAS ---
-    try:
-        analyze_best_recommendation()
-    except Exception as e:
-        print(f"Error Direct Run: {e}")
-        
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(10)
-        except:
-            time.sleep(10)
+    run_bot()
