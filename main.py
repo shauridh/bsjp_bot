@@ -1,29 +1,22 @@
-import yfinance as yf
-import pandas as pd
 import requests
 import time
 import datetime
 import os
-import feedparser
 import json
+import pandas as pd
 from urllib.parse import quote
 
 # --- KONFIGURASI ---
+API_KEY = os.getenv("GOAPI_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 TRADES_FILE = "active_trades.json"
 
-# --- LIST SAHAM RECEH (Liquid & Volatil) ---
-AUTO_WATCHLIST = [
-    'BUMI.JK', 'BRMS.JK', 'DEWA.JK', 'ENRG.JK', 'BIPI.JK', 'ELSA.JK',
-    'APLN.JK', 'ASRI.JK', 'BKSL.JK', 'KIJA.JK', 'LPKR.JK', 'LPCK.JK', 
-    'BEST.JK', 'DILD.JK', 'PTPP.JK', 'WIKA.JK', 'ADHI.JK', 
-    'SCMA.JK', 'MNCN.JK', 'BMTR.JK', 'VIVA.JK', 'BUKA.JK', 'GOTO.JK',
-    'MLPT.JK', 'WIRG.JK', 'MPPA.JK', 'RALS.JK', 'SIDO.JK', 'WOOD.JK', 
-    'CLEO.JK', 'CAMP.JK', 'CARS.JK', 'IPCC.JK', 'IPCM.JK', 'TRAM.JK', 
-    'GIAA.JK', 'KAEF.JK', 'IRRA.JK', 'SAME.JK', 'ZINC.JK', 'ANTM.JK',
-    'HRUM.JK', 'TINS.JK'
-]
+BASE_URL = "https://api.goapi.io"
+HEADERS = {
+    "X-API-KEY": API_KEY,
+    "Accept": "application/json"
+}
 
 # --- DATABASE MANAGER ---
 def load_trades():
@@ -37,211 +30,213 @@ def save_trades(trades):
     with open(TRADES_FILE, 'w') as f:
         json.dump(trades, f, indent=4)
 
-# --- TELEGRAM & NEWS ---
+# --- FUNGSI BANTUAN ---
 def send_telegram(message):
     if not TELEGRAM_TOKEN: return
-    ticker_name = message.splitlines()[0] if message else "Log"
-    print(f"🔔 Notif: {ticker_name}")
+    print(f"🔔 Notif: {message.splitlines()[0]}")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML", "disable_web_page_preview": "True"}
     try: requests.post(url, data=data, timeout=10)
     except: pass
 
-def get_latest_news(ticker_clean):
+def get_goapi(endpoint, params=None):
     try:
-        query = quote(f"Saham {ticker_clean}")
-        rss_url = f"https://news.google.com/rss/search?q={query}&hl=id-ID&gl=ID&ceid=ID:id"
-        feed = feedparser.parse(rss_url)
-        news_list = []
-        if feed.entries:
-            for entry in feed.entries[:2]: 
-                if any(x in entry.title for x in ["Rekomendasi", "Analisa", "Laba", "Dividen", "Jatuh", "Melesat", "Menguat", "IHSG", "Saham"]):
-                    news_list.append(f"📰 <a href='{entry.link}'>{entry.title}</a>")
-        return "\n".join(news_list) if news_list else ""
-    except: return ""
+        url = f"{BASE_URL}{endpoint}"
+        res = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        data = res.json()
+        return data.get('data')
+    except: return None
 
-# --- MONITORING (TRACKER) ---
-def monitor_active_trades():
+# --- INTI LOGIKA SCREENING ANDA ---
+def check_user_criteria(ticker):
+    """
+    Menerjemahkan Gambar Screening Rules Anda ke Python:
+    1. Price > 50
+    2. Value > 500.000.000
+    3. Price > MA 5 (Uptrend)
+    4. Volume > 2x Volume MA 20 (Volume Spike)
+    """
+    # Ambil data historis 30 hari terakhir untuk hitung MA
+    today = datetime.date.today()
+    start_date = today - datetime.timedelta(days=45) # Ambil lebih utk buffer libur
+    
+    hist_data = get_goapi(f"/stock/idx/{ticker}/historical", {
+        'from': start_date.strftime("%Y-%m-%d"),
+        'to': today.strftime("%Y-%m-%d")
+    })
+    
+    if not hist_data or 'results' not in hist_data: return None
+
+    # Olah Data dengan Pandas
+    df = pd.DataFrame(hist_data['results'])
+    df['close'] = pd.to_numeric(df['close'])
+    df['volume'] = pd.to_numeric(df['volume'])
+    df = df.sort_values('date') # Urutkan dari lama ke baru
+
+    if len(df) < 20: return None # Data kurang untuk MA20
+
+    # --- HITUNG INDIKATOR (SESUAI GAMBAR) ---
+    # 1. Price MA 5
+    df['MA5_Price'] = df['close'].rolling(window=5).mean()
+    
+    # 2. Volume MA 20
+    df['MA20_Vol'] = df['volume'].rolling(window=20).mean()
+    
+    # Ambil data hari terakhir (Latest)
+    last = df.iloc[-1]
+    
+    current_price = last['close']
+    current_vol = last['volume']
+    ma5_price = last['MA5_Price']
+    ma20_vol = last['MA20_Vol']
+    
+    # Hitung Transaction Value (Perkiraan: Close * Volume)
+    current_value = current_price * current_vol
+
+    # --- PENGECEKAN SYARAT (FILTERING) ---
+    reasons = []
+    
+    # Rule 1: Price > 50
+    if current_price <= 50: return None
+    
+    # Rule 2: Value > 500 Juta
+    if current_value < 500_000_000: return None
+    
+    # Rule 3: Price > MA 5 (Strong Uptrend)
+    if current_price <= ma5_price: return None
+    
+    # Rule 4: Volume > 2x MA 20 Vol (Ledakan Volume)
+    if current_vol <= (ma20_vol * 2): return None
+
+    # Jika lolos semua filter di atas, berarti saham ini EMAS!
+    return {
+        "price": int(current_price),
+        "vol_ratio": round(current_vol / ma20_vol, 1), # Misal 3.5x
+        "ma5": int(ma5_price),
+        "val": current_value
+    }
+
+# --- JOB UTAMA: CARI BSJP ---
+def run_bsjp_scanner():
+    print("💎 Memulai Scan BSJP Spesial...")
+    
+    # 1. Ambil Kandidat dari Top Gainer (1 Request)
+    # Kenapa Top Gainer? Karena saham "Near 52 Week High" biasanya ada di sini.
+    gainers = get_goapi("/stock/idx/top_gainer")
+    if not gainers: return
+    
+    # Ambil 10 teratas saja biar hemat kuota
+    candidates = [x['ticker'] for x in gainers['results'][:10]]
+    
+    found_count = 0
+    trades = load_trades()
+    today_str = str(datetime.date.today())
+
+    msg = "💎 <b>SINYAL BSJP PREMIUM</b>\n<i>(Price > MA5 & Vol > 2x MA20)</i>\n\n"
+    
+    for ticker in candidates:
+        if ticker in trades: continue # Skip yg udah punya
+        
+        # Cek Kriteria User (1 Request per ticker)
+        result = check_user_criteria(ticker)
+        
+        if result:
+            # Lolos Screening!
+            price = result['price']
+            vol_x = result['vol_ratio']
+            
+            # Setup Plan
+            tp1 = int(price * 1.04) # Cuan 4%
+            tp2 = int(price * 1.08) # Cuan 8%
+            sl = int(price * 0.96)  # SL 4%
+            
+            msg += f"🔥 <b>{ticker}</b>: {price}\n"
+            msg += f"   📊 Vol: {vol_x}x Rata-rata\n"
+            msg += f"   💰 Value: {int(result['val']/1000000000)} Milyar\n"
+            msg += f"   🎯 TP: {tp1} | SL: {sl}\n\n"
+            
+            # Simpan
+            trades[ticker] = {
+                "entry": price, "tp1": tp1, "tp2": tp2, "sl": sl,
+                "date": today_str, "status": "OPEN"
+            }
+            save_trades(trades)
+            found_count += 1
+            
+        time.sleep(1) # Jeda dikit
+        
+    if found_count > 0:
+        msg += "<i>Segera HK sebelum 14:50!</i>"
+        send_telegram(msg)
+    else:
+        print("Zonk. Tidak ada saham yg lolos filter ketat ini.")
+
+# --- JOB MONITORING (HEMAT) ---
+def run_monitor():
     trades = load_trades()
     if not trades: return
-
-    print(f"🕵️ Monitoring {len(trades)} posisi aktif...")
+    
+    # Cek Harga Massal (1 Request)
+    symbols = ",".join(trades.keys())
+    price_data = get_goapi("/stock/idx/prices", {'symbols': symbols})
+    if not price_data: return
+    
+    curr_prices = {x['symbol']: float(x['close']) for x in price_data['results']}
     updated_trades = trades.copy()
     
     for ticker, data in trades.items():
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
-            if len(hist) == 0: continue
+        if ticker not in curr_prices: continue
+        price = curr_prices[ticker]
+        pnl = ((price - data['entry']) / data['entry']) * 100
+        
+        msg = ""
+        remove = False
+        
+        if price <= data['sl']:
+            msg = f"🥀 <b>CUT LOSS: {ticker}</b>\nExit: {int(price)} ({pnl:.2f}%)"
+            remove = True
+        elif price >= data['tp2']:
+            msg = f"🚀 <b>TP 2 LUNAS: {ticker}</b>\nExit: {int(price)} (+{pnl:.2f}%)"
+            remove = True
+        elif price >= data['tp1'] and data['status'] == 'OPEN':
+            msg = f"💰 <b>TP 1 HIT: {ticker}</b>\nHarga: {int(price)} (+{pnl:.2f}%)"
+            updated_trades[ticker]['status'] = 'TP1_HIT'
             
-            curr_price = float(hist['Close'].iloc[-1])
-            entry = data['entry']
-            tp1 = data['tp1']
-            tp2 = data['tp2']
-            sl = data['sl']
-            status = data.get('status', 'OPEN')
-            
-            pnl_pct = ((curr_price - entry) / entry) * 100
-            
-            msg = ""
-            remove_trade = False
-
-            if curr_price <= sl:
-                msg = f"🥀 <b>STOP LOSS: {ticker.replace('.JK','')}</b>\nExit: {int(curr_price)} ({pnl_pct:.2f}%)\nPlan SL: {sl}"
-                remove_trade = True
-            elif curr_price >= tp2:
-                msg = f"🚀 <b>TP 2 LUNAS: {ticker.replace('.JK','')}</b>\nHarga: {int(curr_price)} (+{pnl_pct:.2f}%)\nTarget tercapai!"
-                remove_trade = True
-            elif curr_price >= tp1 and status == 'OPEN':
-                msg = f"💰 <b>TP 1 HIT: {ticker.replace('.JK','')}</b>\nHarga: {int(curr_price)} (+{pnl_pct:.2f}%)\nAmankan sebagian profit."
-                updated_trades[ticker]['status'] = 'TP1_HIT'
-
-            if msg: send_telegram(msg)
-            if remove_trade: del updated_trades[ticker]
-                
-        except Exception as e: continue
-            
+        if msg: send_telegram(msg)
+        if remove: del updated_trades[ticker]
+        
     save_trades(updated_trades)
 
-def send_daily_recap():
-    trades = load_trades()
-    if not trades:
-        send_telegram("ℹ️ <b>REKAP SORE:</b> Tidak ada posisi terbuka.")
-        return
-
-    msg = "📒 <b>REKAP POSISI SORE INI:</b>\n\n"
-    for ticker, data in trades.items():
-        try:
-            stock = yf.Ticker(ticker)
-            curr_price = stock.history(period="1d")['Close'].iloc[-1]
-            entry = data['entry']
-            pnl = ((curr_price - entry) / entry) * 100
-            icon = "🟢" if pnl >= 0 else "🔴"
-            msg += f"{icon} <b>{ticker.replace('.JK','')}</b>: {int(curr_price)} ({pnl:+.1f}%)\n"
-        except: msg += f"⚪ <b>{ticker}</b>: (Data Error)\n"
-            
-    send_telegram(msg)
-
-# --- ANALISA UTAMA ---
-def analyze_stock(ticker):
-    try:
-        trades = load_trades()
-        if ticker in trades: return False
-
-        stock = yf.Ticker(ticker)
-        df = stock.history(period="3mo", interval="1d")
-        if len(df) < 50: return False
-
-        df['SMA20'] = df['Close'].rolling(window=20).mean()
-        df['SMA50'] = df['Close'].rolling(window=50).mean()
-        df['VolAvg'] = df['Volume'].rolling(window=20).mean()
-        
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        price = float(last['Close'])
-        vol = float(last['Volume'])
-        avg_vol = float(last['VolAvg'])
-        ticker_clean = ticker.replace(".JK", "")
-        
-        if price > 800: return False
-        
-        signals = []
-        signal_type = ""
-
-        if prev['SMA20'] < prev['SMA50'] and last['SMA20'] > last['SMA50']:
-            signals.append("✅ <b>GOLDEN CROSS</b>")
-            signal_type = "SWING"
-        if last['RSI'] < 30:
-            signals.append(f"🎣 <b>RSI OVERSOLD: {last['RSI']:.1f}</b>")
-            signal_type = "REBOUND"
-        # Logika BSJP: Volume meledak & harga naik
-        if vol > (avg_vol * 2.5) and price > prev['Close']:
-            signals.append(f"🌇 <b>VOLUME MELEDAK ({int(vol/avg_vol)}x)</b>")
-            signal_type = "BSJP"
-
-        if signals:
-            buy_price = int(price)
-            sl_price = int(buy_price * 0.95)
-            tp1_price = int(buy_price * 1.05)
-            tp2_price = int(buy_price * 1.12)
-            
-            if signal_type == "REBOUND": sl_price = int(buy_price * 0.96)
-
-            new_trade = {
-                "entry": buy_price, "tp1": tp1_price, "tp2": tp2_price,
-                "sl": sl_price, "date": str(datetime.date.today()), "status": "OPEN"
-            }
-            trades[ticker] = new_trade
-            save_trades(trades)
-
-            news_update = get_latest_news(ticker_clean)
-            gf_link = f"https://www.google.com/finance/quote/{ticker_clean}:IDX"
-            
-            msg = f"📊 <b>SINYAL BARU: {ticker_clean}</b>\n"
-            msg += "\n".join(signals)
-            msg += f"\n\n🎯 <b>TRADING PLAN:</b>\n🟢 BUY: {buy_price}\n💰 TP1: {tp1_price} (5%)\n💰 TP2: {tp2_price} (12%)\n🛡️ SL: {sl_price} (-5%)"
-            if news_update: msg += f"\n\n<b>Berita:</b>\n{news_update}"
-            msg += f"\n🔗 <a href='{gf_link}'>Grafik</a>"
-            
-            send_telegram(msg)
-            return True
-
-    except Exception as e: pass
-    return False
-
+# --- SCHEDULER ---
 def run_bot():
-    count_stock = len(AUTO_WATCHLIST)
-    send_telegram(f"🤖 <b>BOT SAHAM JADWAL BARU</b>\nBSJP digeser ke 14:45 WIB.\nTracker & Screener Siap.")
+    send_telegram("🤖 <b>BOT BSJP (USER STRATEGY) AKTIF</b>\nFilter: Price>MA5 & Vol>2xMA20\nJadwal: 14:45 WIB")
     
-    cycle = 0
+    last_scan_date = ""
+    
     while True:
         now = datetime.datetime.now()
         jam = now.hour
         menit = now.minute
-        hari_kerja = now.weekday() < 5 
-
-        should_scan = False
-        if cycle == 0: should_scan = True 
+        hari_kerja = now.weekday() < 5
+        today_date = now.strftime("%Y-%m-%d")
         
         if hari_kerja:
-            # Pagi & Siang: Scan Normal
-            if (jam == 9 and menit == 45) or (jam == 11 and menit == 0):
-                if cycle % 60 == 0: should_scan = True
+            
+            # 1. WAKTU BSJP (14:45) - Cuma sekali sehari
+            # Kita kunci pakai tanggal biar gak running berkali-kali di menit yg sama
+            if jam == 14 and menit >= 45 and last_scan_date != today_date:
+                run_bsjp_scanner()
+                last_scan_date = today_date # Tandai hari ini sudah scan
+                
+            # 2. MONITORING PAGI (09:30) & SIANG (13:30)
+            # Cukup 2x sehari biar hemat kuota
+            if (jam == 9 and menit == 30) or (jam == 13 and menit == 30):
+                if now.second < 10: # Biar cuma jalan sekali di menit itu
+                    run_monitor()
+                    time.sleep(10)
 
-            # --- PERUBAHAN DI SINI ---
-            # SORE: BSJP Digeser ke 14:45 WIB (Sesi 2 Masih Jalan)
-            if jam == 14 and menit == 45 and cycle % 60 == 0:
-                print(f"[{now.strftime('%H:%M')}] 🌇 Memulai Scan BSJP Sore...")
-                should_scan = True
-
-            # Monitoring per 30 menit
-            market_open = (9 <= jam < 16)
-            if market_open and cycle % 30 == 0: 
-                monitor_active_trades()
-
-            # Rekap Sore (Setelah market benar-benar tutup)
-            if jam == 16 and menit == 15 and cycle % 60 == 0:
-                send_daily_recap()
-
-        if should_scan:
-            print(f"[{now.strftime('%H:%M')}] 🚀 Scanning Saham...", flush=True)
-            found = 0
-            for stock in AUTO_WATCHLIST:
-                if analyze_stock(stock): found += 1
-                time.sleep(1.5) 
-            print(f"Selesai. Sinyal Baru: {found}")
-
-        if menit == 0 and cycle % 60 == 0:
-            print(f"[{now.strftime('%H:%M')}] Standby...", flush=True)
-
-        time.sleep(60) 
-        cycle += 1
+        # Standby
+        time.sleep(50)
 
 if __name__ == "__main__":
     run_bot()
