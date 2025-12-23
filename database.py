@@ -24,20 +24,36 @@ class Signal(Base):
     date = Column(Date, nullable=False)
     status = Column(Enum(SignalStatus), default=SignalStatus.PENDING)
     time = Column(String, nullable=False)  # e.g. '15:45'
+    strategy = Column(String, nullable=False, default='BSJP')  # 'BSJP' or 'BPJS'
 
-# Create tables
+
+# Migration: add strategy column if not exists
+from sqlalchemy import inspect
+def migrate_add_strategy_column():
+    insp = inspect(engine)
+    columns = [col['name'] for col in insp.get_columns('signals')]
+    if 'strategy' not in columns:
+        with engine.connect() as conn:
+            conn.execute('ALTER TABLE signals ADD COLUMN strategy TEXT DEFAULT "BSJP"')
+
+migrate_add_strategy_column()
 Base.metadata.create_all(engine)
 
-def add_signal(code, price, tp, sl, date, time):
+
+def add_signal(code, price, tp, sl, date, time, strategy='BSJP'):
     session = SessionLocal()
-    signal = Signal(code=code, price=price, tp=tp, sl=sl, date=date, time=time)
+    signal = Signal(code=code, price=price, tp=tp, sl=sl, date=date, time=time, strategy=strategy)
     session.add(signal)
     session.commit()
     session.close()
 
-def get_pending_signals(date):
+
+def get_pending_signals(date, strategy=None):
     session = SessionLocal()
-    signals = session.query(Signal).filter_by(date=date, status=SignalStatus.PENDING).all()
+    query = session.query(Signal).filter_by(date=date, status=SignalStatus.PENDING)
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+    signals = query.all()
     session.close()
     return signals
 
@@ -49,8 +65,12 @@ def update_signal_status(signal_id, status):
         session.commit()
     session.close()
 
-def get_signals_by_date(date):
+
+def get_signals_by_date(date, strategy=None):
     session = SessionLocal()
-    signals = session.query(Signal).filter_by(date=date).all()
+    query = session.query(Signal).filter_by(date=date)
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+    signals = query.all()
     session.close()
     return signals
