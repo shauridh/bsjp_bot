@@ -4,4 +4,4 @@ requests==2.31.0
 SQLAlchemy==2.0.25
 python-dotenv==1.0.0
 yfinance
-git+https://github.com/twopirllc/pandas-ta.git
+curl https://www.pandas-ta.dev/assets/zip/pandas_ta-0.4.71b0.tar.gz -o pandas-ta.tar.gz
