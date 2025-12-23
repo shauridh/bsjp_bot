@@ -3,4 +3,8 @@ apscheduler>=3.10.0
 requests
 yfinance
 pandas
+numpy
+numba
+llvmlite
+tqdm
 https://www.pandas-ta.dev/assets/zip/pandas_ta-0.4.71b0.tar.gz
