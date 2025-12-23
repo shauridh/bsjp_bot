@@ -2,7 +2,6 @@ import os
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import Bot
-from telegram.constants import ParseMode
 from scanner import scan_and_save, scan_bpjs_market, format_alert
 from evaluator import evaluate_signals, evaluate_bpjs_today, format_report, format_bpjs_report
 import time
@@ -15,7 +14,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 # WIB = UTC+7
 def send_telegram_message(text):
     try:
-        bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=ParseMode.MARKDOWN)
+        bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
     except Exception as e:
         print(f"Telegram Error: {e}")
 
