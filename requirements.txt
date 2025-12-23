@@ -1,7 +1,7 @@
-python-telegram-bot==20.6
-APScheduler==3.10.4
-requests==2.31.0
-SQLAlchemy==2.0.25
-python-dotenv==1.0.0
+python-telegram-bot>=20.0
+apscheduler>=3.10.0
+sqlite3-binary
+requests
 yfinance
-curl https://www.pandas-ta.dev/assets/zip/pandas_ta-0.4.71b0.tar.gz -o pandas-ta.tar.gz
+pandas
+pandas_ta

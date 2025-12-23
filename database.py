@@ -1,76 +1,60 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Enum
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import enum
-import os
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
 
-DB_PATH = os.getenv('DB_PATH', 'bsjp.db')
-engine = create_engine(f'sqlite:///{DB_PATH}', echo=False)
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
+DB_PATH = 'signals.db'
 
-class SignalStatus(enum.Enum):
-    PENDING = 'PENDING'
-    WIN = 'WIN'
-    LOSS = 'LOSS'
+@contextmanager
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
 
-class Signal(Base):
-    __tablename__ = 'signals'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
-    tp = Column(Float, nullable=False)
-    sl = Column(Float, nullable=False)
-    date = Column(Date, nullable=False)
-    status = Column(Enum(SignalStatus), default=SignalStatus.PENDING)
-    time = Column(String, nullable=False)  # e.g. '15:45'
-    strategy = Column(String, nullable=False, default='BSJP')  # 'BSJP' or 'BPJS'
+def init_db():
+    with get_db() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                strategy TEXT NOT NULL,
+                signal_date TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                target_tp REAL NOT NULL,
+                limit_sl REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT NOT NULL
+            )
+        ''')
 
+def insert_signal(ticker, strategy, signal_date, entry_price, target_tp, limit_sl, status='PENDING'):
+    with get_db() as conn:
+        conn.execute('''
+            INSERT INTO signals (ticker, strategy, signal_date, entry_price, target_tp, limit_sl, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (ticker, strategy, signal_date, entry_price, target_tp, limit_sl, status, datetime.now().isoformat()))
 
-# Migration: add strategy column if not exists
-from sqlalchemy import inspect
-def migrate_add_strategy_column():
-    insp = inspect(engine)
-    columns = [col['name'] for col in insp.get_columns('signals')]
-    if 'strategy' not in columns:
-        with engine.connect() as conn:
-            conn.execute('ALTER TABLE signals ADD COLUMN strategy TEXT DEFAULT "BSJP"')
-
-migrate_add_strategy_column()
-Base.metadata.create_all(engine)
-
-
-def add_signal(code, price, tp, sl, date, time, strategy='BSJP'):
-    session = SessionLocal()
-    signal = Signal(code=code, price=price, tp=tp, sl=sl, date=date, time=time, strategy=strategy)
-    session.add(signal)
-    session.commit()
-    session.close()
-
-
-def get_pending_signals(date, strategy=None):
-    session = SessionLocal()
-    query = session.query(Signal).filter_by(date=date, status=SignalStatus.PENDING)
+def get_signals(strategy=None, status=None, date=None):
+    query = 'SELECT * FROM signals WHERE 1=1'
+    params = []
     if strategy:
-        query = query.filter_by(strategy=strategy)
-    signals = query.all()
-    session.close()
-    return signals
+        query += ' AND strategy = ?'
+        params.append(strategy)
+    if status:
+        query += ' AND status = ?'
+        params.append(status)
+    if date:
+        query += ' AND signal_date = ?'
+        params.append(date)
+    with get_db() as conn:
+        return conn.execute(query, params).fetchall()
 
 def update_signal_status(signal_id, status):
-    session = SessionLocal()
-    signal = session.query(Signal).filter_by(id=signal_id).first()
-    if signal:
-        signal.status = status
-        session.commit()
-    session.close()
-
-
-def get_signals_by_date(date, strategy=None):
-    session = SessionLocal()
-    query = session.query(Signal).filter_by(date=date)
-    if strategy:
-        query = query.filter_by(strategy=strategy)
-    signals = query.all()
-    session.close()
-    return signals
+    with get_db() as conn:
+        conn.execute('UPDATE signals SET status = ? WHERE id = ?', (status, signal_id))
