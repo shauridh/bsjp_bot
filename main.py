@@ -11,14 +11,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')  # Set this in your .env or hardcode for now
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
 init_db()
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+bot = Bot(token=TELEGRAM_TOKEN)
 
 # --- Alert helpers ---
 def send_alert(strategy, results):
@@ -62,7 +63,7 @@ def main():
     scheduler.start()
     logger.info("Scheduler started. Bot is running.")
     # Minimal Telegram bot for /start
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     async def start(update, context):
         await update.message.reply_text("IDX Trading Bot is running.")
     app.add_handler(CommandHandler("start", start))
