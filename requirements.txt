@@ -7,4 +7,5 @@ numpy
 numba
 llvmlite
 tqdm
+python-dotenv
 https://www.pandas-ta.dev/assets/zip/pandas_ta-0.4.71b0.tar.gz
