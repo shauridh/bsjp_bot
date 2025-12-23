@@ -1,0 +1,65 @@
+import requests
+import os
+from datetime import datetime, timedelta
+from database import get_pending_signals, update_signal_status, SignalStatus
+from dotenv import load_dotenv
+
+load_dotenv()
+API_KEY = os.getenv('API_KEY')
+GOAPI_DETAIL_URL = 'https://api.goapi.id/v1/stock/idx/{code}/historical'  # Endpoint untuk harga harian
+
+def fetch_today_high_low(code):
+    headers = {'Authorization': f'Bearer {API_KEY}'}
+    today = datetime.now().date()
+    try:
+        resp = requests.get(GOAPI_DETAIL_URL.format(code=code), headers=headers, params={
+            'date': today.strftime('%Y-%m-%d'),
+            'range': '1d'
+        }, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        prices = data.get('data', [])
+        if prices:
+            high = prices[0].get('high')
+            low = prices[0].get('low')
+            return high, low
+    except Exception as e:
+        print(f"API Error: {e}")
+    return None, None
+
+def evaluate_signals():
+    yesterday = datetime.now().date() - timedelta(days=1)
+    signals = get_pending_signals(yesterday)
+    results = []
+    win_count = 0
+    for signal in signals:
+        high, low = fetch_today_high_low(signal.code)
+        status = None
+        if high is not None and low is not None:
+            if high >= signal.tp:
+                status = SignalStatus.WIN
+                win_count += 1
+            elif low <= signal.sl:
+                status = SignalStatus.LOSS
+            else:
+                status = SignalStatus.PENDING
+            update_signal_status(signal.id, status)
+            results.append({
+                'code': signal.code,
+                'result': 'WIN' if status == SignalStatus.WIN else 'LOSS' if status == SignalStatus.LOSS else 'PENDING'
+            })
+    total = len(signals)
+    win_rate = int((win_count / total) * 100) if total else 0
+    return results, win_rate
+
+def format_report(results, win_rate):
+    msg = "📊 *DAILY EVALUATION*\nYesterday's Picks:\n"
+    for r in results:
+        if r['result'] == 'WIN':
+            msg += f"✅ {r['code']}: WIN (Hit TP)\n"
+        elif r['result'] == 'LOSS':
+            msg += f"❌ {r['code']}: LOSS (Hit SL)\n"
+        else:
+            msg += f"⏳ {r['code']}: PENDING\n"
+    msg += f"Win Rate: {win_rate}%"
+    return msg
