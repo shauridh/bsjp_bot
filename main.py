@@ -117,11 +117,27 @@ def main():
     scan_and_alert('BPJS')
     scan_and_alert('BSJP')
 
-    # Minimal Telegram bot for /start
+    # Minimal Telegram bot for /start plus on-demand screening commands
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+
     async def start(update, context):
         await update.message.reply_text("IDX Trading Bot is running.")
+
+    async def run_scan_command(update, context, strategy):
+        await update.message.reply_text(f"Running {strategy} scan...")
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, scan_and_alert, strategy)
+        await update.message.reply_text(f"{strategy} scan completed. Check alerts above if any candidates found.")
+
+    async def bpjs(update, context):
+        await run_scan_command(update, context, "BPJS")
+
+    async def bsjp(update, context):
+        await run_scan_command(update, context, "BSJP")
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("bpjs", bpjs))
+    app.add_handler(CommandHandler("bsjp", bsjp))
     app.run_polling()
 
 if __name__ == "__main__":
