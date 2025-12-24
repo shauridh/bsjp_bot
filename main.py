@@ -1,5 +1,8 @@
 import os
 import logging
+from datetime import datetime
+import pytz
+import threading
 from telegram import Bot
 from telegram.ext import Application, CommandHandler
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,8 +18,25 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')  # Set this in your .env or hardcode for now
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("main")
+
+# Custom Jakarta timezone log formatter
+class JakartaFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        tz = pytz.timezone('Asia/Jakarta')
+        ct = datetime.fromtimestamp(record.created, tz)
+        if datefmt:
+            s = ct.strftime(datefmt)
+        else:
+            s = ct.isoformat(sep=" ", timespec="seconds")
+        return s
+
+formatter = JakartaFormatter('[%(asctime)s] %(levelname)s:%(name)s:%(message)s')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+logger.addHandler(handler)
 
 init_db()
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -51,7 +71,7 @@ def scan_and_alert(strategy):
     logger.info(f"Scan results for {strategy}: {results}")
     send_alert(strategy, results)
 
-def main():
+def start_scheduler():
     scheduler = BackgroundScheduler(timezone='Asia/Jakarta')
     # BPJS: 09:15, 09:30, 09:45, 10:00 WIB
     for t in ['09:15', '09:30', '09:45', '10:00']:
@@ -67,6 +87,19 @@ def main():
     scheduler.add_job(evaluate_bsjp, CronTrigger(hour=10, minute=0), id='bsjp_eval')
     scheduler.start()
     logger.info("Scheduler started. Bot is running.")
+
+def main():
+    # Start scheduler in a separate thread
+    scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+    scheduler_thread.start()
+
+    # Kirim notifikasi awal ke Telegram sebagai test
+    try:
+        bot.send_message(chat_id=CHAT_ID, text="🚦 IDX Trading Bot started (startup test notification)")
+        logger.info("Startup test notification sent to Telegram.")
+    except Exception as e:
+        logger.error(f"Failed to send startup test notification: {e}")
+
     # Minimal Telegram bot for /start
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     async def start(update, context):
