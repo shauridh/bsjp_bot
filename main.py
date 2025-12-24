@@ -75,13 +75,16 @@ def scan_and_alert(strategy):
 def start_scheduler():
     logger.info("[Scheduler] Thread started, initializing jobs...")
     try:
+        logger.info("[Scheduler] Creating BackgroundScheduler...")
         scheduler = BackgroundScheduler(timezone='Asia/Jakarta')
+        logger.info("[Scheduler] BackgroundScheduler created.")
         # BPJS: 09:15, 09:30, 09:45, 10:00 WIB
         for t in ['09:15', '09:30', '09:45', '10:00']:
             h, m = t.split(':')
             logger.info(f"[Scheduler] Adding BPJS job for {t}")
             scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BPJS'], id=f'bpjs_{t}')
         # BPJS Eval: 16:30 WIB
+        logger.info("[Scheduler] Adding BPJS eval job for 16:30")
         scheduler.add_job(evaluate_bpjs, CronTrigger(hour=16, minute=30), id='bpjs_eval')
         # BSJP: 14:45, 15:00, 15:15, 15:30, 15:45 WIB
         for t in ['14:45', '15:00', '15:15', '15:30', '15:45']:
@@ -89,11 +92,14 @@ def start_scheduler():
             logger.info(f"[Scheduler] Adding BSJP job for {t}")
             scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BSJP'], id=f'bsjp_{t}')
         # BSJP Eval: 10:00 WIB (next day)
+        logger.info("[Scheduler] Adding BSJP eval job for 10:00")
         scheduler.add_job(evaluate_bsjp, CronTrigger(hour=10, minute=0), id='bsjp_eval')
         scheduler.start()
         logger.info("[Scheduler] Scheduler started. Bot is running.")
     except Exception as e:
         logger.error(f"[Scheduler] Exception in scheduler thread: {e}")
+    finally:
+        logger.info("[Scheduler] Exiting start_scheduler function.")
 
 def main():
     # Start scheduler in a separate thread
