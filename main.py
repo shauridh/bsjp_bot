@@ -24,6 +24,7 @@ bot = Bot(token=TELEGRAM_TOKEN)
 # --- Alert helpers ---
 def send_alert(strategy, results):
     if not results:
+        logger.info(f"No candidates for {strategy} at this run.")
         return
     if strategy == 'BPJS':
         prefix = '☀️ [BPJS - MORNING]'
@@ -36,14 +37,18 @@ def send_alert(strategy, results):
     msg = f"{prefix}\n"
     for r in results:
         msg += f"{r['ticker']}: Entry {r['entry_price']:.2f}, TP {tp_pct}, SL {sl_pct}\n"
+    logger.info(f"Sending alert for {strategy}: {msg}")
     try:
         bot.send_message(chat_id=CHAT_ID, text=msg)
+        logger.info("Alert sent successfully.")
     except Exception as e:
         logger.error(f"Telegram send error: {e}")
 
 # --- Scheduler jobs ---
 def scan_and_alert(strategy):
+    logger.info(f"Running scan_and_alert for {strategy}")
     results = hybrid_scan(strategy)
+    logger.info(f"Scan results for {strategy}: {results}")
     send_alert(strategy, results)
 
 def main():
