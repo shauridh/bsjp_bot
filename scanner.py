@@ -1,3 +1,4 @@
+
 import os
 import requests
 import yfinance as yf
@@ -8,15 +9,14 @@ from dotenv import load_dotenv
 import logging
 import time
 
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("scanner")
 
 load_dotenv()
 GOAPI_KEY = os.getenv('GOAPI_KEY')
 GOAPI_BASE_URL = os.getenv('GOAPI_BASE_URL')
 logger.info(f"GOAPI_BASE_URL loaded: {GOAPI_BASE_URL}")
-
-# Logging setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("scanner")
 
 # --- GoAPI Bulk Fetch ---
 def fetch_top_gainers():
