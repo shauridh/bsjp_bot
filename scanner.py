@@ -144,10 +144,17 @@ def validate_trend(ticker, retries=2, sleep=2):
 
 def hybrid_scan(strategy):
     logger.info(f"Starting hybrid_scan for {strategy}")
-    gainers = fetch_top_gainers()
-    logger.info(f"Total gainers fetched: {len(gainers)}")
-    candidates = [s for s in gainers if basic_filter(s, min_price=50, min_vol=10000)]
-    logger.info(f"Candidates after basic filter: {len(candidates)}")
+    if strategy == 'BSJP':
+        # Screening seluruh universe IDX
+        companies = fetch_companies()
+        logger.info(f"Total companies fetched: {len(companies)}")
+        candidates = [s for s in companies if basic_filter(s, min_price=50, min_vol=10000)]
+        logger.info(f"Candidates after basic filter: {len(candidates)}")
+    else:
+        gainers = fetch_top_gainers()
+        logger.info(f"Total gainers fetched: {len(gainers)}")
+        candidates = [s for s in gainers if basic_filter(s, min_price=50, min_vol=10000)]
+        logger.info(f"Candidates after basic filter: {len(candidates)}")
     results = []
     for stock in candidates:
         ticker = stock['code']
