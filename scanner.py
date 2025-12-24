@@ -8,10 +8,11 @@ from dotenv import load_dotenv
 import logging
 import time
 
-load_dotenv()
 
+load_dotenv()
 GOAPI_KEY = os.getenv('GOAPI_KEY')
 GOAPI_BASE_URL = os.getenv('GOAPI_BASE_URL')
+logger.info(f"GOAPI_BASE_URL loaded: {GOAPI_BASE_URL}")
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -19,11 +20,10 @@ logger = logging.getLogger("scanner")
 
 # --- GoAPI Bulk Fetch ---
 def fetch_top_gainers():
-    url = f"{GOAPI_BASE_URL}/topgainers"
-    headers = {"Authorization": f"Bearer {GOAPI_KEY}"}
+    url = f"{GOAPI_BASE_URL}/top_gainer?api_key={GOAPI_KEY}"
     try:
         logger.info("Fetching top gainers from GoAPI...")
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         logger.info(f"Fetched {len(data.get('data', []))} top gainers.")
