@@ -119,8 +119,9 @@ def main():
     asyncio.run(send_startup_message())
 
     # Jalankan screening langsung untuk BPJS dan BSJP saat startup
-    logger.info("[Startup] Running immediate screening for BPJS and BSJP...")
+    logger.info("[Startup] Running immediate screening for BPJS...")
     scan_and_alert('BPJS')
+    logger.info("[Startup] Running immediate screening for BSJP...")
     scan_and_alert('BSJP')
 
     # Minimal Telegram bot for /start plus on-demand screening commands
