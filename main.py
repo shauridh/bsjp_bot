@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 import pytz
+import asyncio
 import threading
 from telegram import Bot
 from telegram.ext import Application, CommandHandler
@@ -93,12 +94,15 @@ def main():
     scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
     scheduler_thread.start()
 
-    # Kirim notifikasi awal ke Telegram sebagai test
-    try:
-        bot.send_message(chat_id=CHAT_ID, text="🚦 IDX Trading Bot started (startup test notification)")
-        logger.info("Startup test notification sent to Telegram.")
-    except Exception as e:
-        logger.error(f"Failed to send startup test notification: {e}")
+    # Kirim notifikasi awal ke Telegram sebagai test (async)
+    async def send_startup_message():
+        try:
+            await bot.send_message(chat_id=CHAT_ID, text="🚦 IDX Trading Bot started (startup test notification)")
+            logger.info("Startup test notification sent to Telegram.")
+        except Exception as e:
+            logger.error(f"Failed to send startup test notification: {e}")
+
+    asyncio.run(send_startup_message())
 
     # Minimal Telegram bot for /start
     app = Application.builder().token(TELEGRAM_TOKEN).build()
