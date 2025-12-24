@@ -16,7 +16,7 @@ logger = logging.getLogger("scanner")
 load_dotenv()
 GOAPI_KEY = os.getenv('GOAPI_KEY')
 GOAPI_BASE_URL = os.getenv('GOAPI_BASE_URL')
-logger.info(f"GOAPI_BASE_URL loaded: {GOAPI_BASE_URL}")
+# Logger info moved to avoid initialization issues
 
 # --- GoAPI Bulk Fetch ---
 def fetch_top_gainers():
