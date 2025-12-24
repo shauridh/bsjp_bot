@@ -32,6 +32,86 @@ def fetch_top_gainers():
         logger.error(f"GoAPI fetch error: {e}")
         return []
 
+def fetch_top_losers():
+    url = f"{GOAPI_BASE_URL}/top_loser?api_key={GOAPI_KEY}"
+    try:
+        logger.info("Fetching top losers from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched {len(data.get('data', []))} top losers.")
+        return data.get('data', [])
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return []
+
+def fetch_trending():
+    url = f"{GOAPI_BASE_URL}/trending?api_key={GOAPI_KEY}"
+    try:
+        logger.info("Fetching trending stocks from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched {len(data.get('data', []))} trending stocks.")
+        return data.get('data', [])
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return []
+
+def fetch_companies():
+    url = f"{GOAPI_BASE_URL}/companies?api_key={GOAPI_KEY}"
+    try:
+        logger.info("Fetching companies from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched {len(data.get('data', []))} companies.")
+        return data.get('data', [])
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return []
+
+def fetch_prices(codes):
+    # codes: list of stock codes, e.g. ['BBCA','BBRI']
+    codes_param = ','.join(codes)
+    url = f"{GOAPI_BASE_URL}/prices?codes={codes_param}&api_key={GOAPI_KEY}"
+    try:
+        logger.info(f"Fetching prices for {codes_param} from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched prices for {len(data.get('data', []))} stocks.")
+        return data.get('data', [])
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return []
+
+def fetch_historical(symbol):
+    url = f"{GOAPI_BASE_URL}/{symbol}/historical?api_key={GOAPI_KEY}"
+    try:
+        logger.info(f"Fetching historical for {symbol} from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched {len(data.get('data', []))} historical records for {symbol}.")
+        return data.get('data', [])
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return []
+
+def fetch_profile(symbol):
+    url = f"{GOAPI_BASE_URL}/{symbol}/profile?api_key={GOAPI_KEY}"
+    try:
+        logger.info(f"Fetching profile for {symbol} from GoAPI...")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"Fetched profile for {symbol}.")
+        return data.get('data', {})
+    except Exception as e:
+        logger.error(f"GoAPI fetch error: {e}")
+        return {}
+
 # --- Local Basic Filter ---
 def basic_filter(stock, min_price=50, min_vol=1):
     try:
