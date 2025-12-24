@@ -73,26 +73,34 @@ def scan_and_alert(strategy):
     send_alert(strategy, results)
 
 def start_scheduler():
-    scheduler = BackgroundScheduler(timezone='Asia/Jakarta')
-    # BPJS: 09:15, 09:30, 09:45, 10:00 WIB
-    for t in ['09:15', '09:30', '09:45', '10:00']:
-        h, m = t.split(':')
-        scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BPJS'], id=f'bpjs_{t}')
-    # BPJS Eval: 16:30 WIB
-    scheduler.add_job(evaluate_bpjs, CronTrigger(hour=16, minute=30), id='bpjs_eval')
-    # BSJP: 14:45, 15:00, 15:15, 15:30, 15:45 WIB
-    for t in ['14:45', '15:00', '15:15', '15:30', '15:45']:
-        h, m = t.split(':')
-        scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BSJP'], id=f'bsjp_{t}')
-    # BSJP Eval: 10:00 WIB (next day)
-    scheduler.add_job(evaluate_bsjp, CronTrigger(hour=10, minute=0), id='bsjp_eval')
-    scheduler.start()
-    logger.info("Scheduler started. Bot is running.")
+    logger.info("[Scheduler] Thread started, initializing jobs...")
+    try:
+        scheduler = BackgroundScheduler(timezone='Asia/Jakarta')
+        # BPJS: 09:15, 09:30, 09:45, 10:00 WIB
+        for t in ['09:15', '09:30', '09:45', '10:00']:
+            h, m = t.split(':')
+            logger.info(f"[Scheduler] Adding BPJS job for {t}")
+            scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BPJS'], id=f'bpjs_{t}')
+        # BPJS Eval: 16:30 WIB
+        scheduler.add_job(evaluate_bpjs, CronTrigger(hour=16, minute=30), id='bpjs_eval')
+        # BSJP: 14:45, 15:00, 15:15, 15:30, 15:45 WIB
+        for t in ['14:45', '15:00', '15:15', '15:30', '15:45']:
+            h, m = t.split(':')
+            logger.info(f"[Scheduler] Adding BSJP job for {t}")
+            scheduler.add_job(scan_and_alert, CronTrigger(hour=int(h), minute=int(m)), args=['BSJP'], id=f'bsjp_{t}')
+        # BSJP Eval: 10:00 WIB (next day)
+        scheduler.add_job(evaluate_bsjp, CronTrigger(hour=10, minute=0), id='bsjp_eval')
+        scheduler.start()
+        logger.info("[Scheduler] Scheduler started. Bot is running.")
+    except Exception as e:
+        logger.error(f"[Scheduler] Exception in scheduler thread: {e}")
 
 def main():
     # Start scheduler in a separate thread
     scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
     scheduler_thread.start()
+    logger.info("[Main] Scheduler thread started, main thread continues.")
+
 
     # Kirim notifikasi awal ke Telegram sebagai test (async)
     async def send_startup_message():
@@ -103,6 +111,11 @@ def main():
             logger.error(f"Failed to send startup test notification: {e}")
 
     asyncio.run(send_startup_message())
+
+    # Jalankan screening langsung untuk BPJS dan BSJP saat startup
+    logger.info("[Startup] Running immediate screening for BPJS and BSJP...")
+    scan_and_alert('BPJS')
+    scan_and_alert('BSJP')
 
     # Minimal Telegram bot for /start
     app = Application.builder().token(TELEGRAM_TOKEN).build()
