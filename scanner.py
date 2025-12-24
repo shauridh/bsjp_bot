@@ -132,7 +132,10 @@ def validate_trend(ticker, retries=2, sleep=2):
             hist['EMA20'] = ta.ema(hist['Close'], length=20)
             hist['EMA50'] = ta.ema(hist['Close'], length=50)
             hist['RSI14'] = ta.rsi(hist['Close'], length=14)
+            hist['MA5'] = ta.sma(hist['Close'], length=5)
+            hist['MA20V'] = ta.sma(hist['Volume'], length=20)
             hist['avg_vol5'] = hist['Volume'].rolling(window=5).mean()
+            hist['52w_high'] = hist['High'].rolling(window=252, min_periods=1).max()
             return hist
         except Exception as e:
             logger.warning(f"yfinance error for {ticker} (attempt {attempt+1}): {e}")
@@ -164,6 +167,9 @@ def hybrid_scan(strategy):
         rsi14 = last_row['RSI14']
         volume = last_row['Volume']
         avg_vol5 = last_row['avg_vol5'] if not pd.isna(last_row['avg_vol5']) else 0
+        ma5 = last_row['MA5'] if not pd.isna(last_row['MA5']) else 0
+        ma20v = last_row['MA20V'] if not pd.isna(last_row['MA20V']) else 0
+        high_52w = last_row['52w_high'] if not pd.isna(last_row['52w_high']) else 0
         lower_shadow = min(open_price, last_price) - low
         range_harian = high - low if high - low != 0 else 1
         ipo_filter = False  # Default, skip IPO filter (but log info)
@@ -201,25 +207,29 @@ def hybrid_scan(strategy):
             tp = last_price * 1.025
             sl = last_price * 0.98
         elif strategy == 'BSJP':
-            if not (2 <= daily_change <= 15):
-                logger.info(f"{ticker} filtered out: daily_change {daily_change:.2f}% not in 2-15%.")
+            # 1. 1 Day Volume Change > 1 (volume hari ini > volume kemarin)
+            if len(hist) > 1 and volume <= hist.iloc[-2]['Volume']:
+                logger.info(f"{ticker} filtered out: volume {volume} <= volume kemarin {hist.iloc[-2]['Volume']}.")
                 continue
-            # Strong close near high
-            if (high - last_price) / high > 0.01:
-                logger.info(f"{ticker} filtered out: not strong close near high.")
+            # 2. Price > 50
+            if last_price <= 50:
+                logger.info(f"{ticker} filtered out: price {last_price} <= 50.")
                 continue
-            if last_price <= ema20:
-                logger.info(f"{ticker} filtered out: price <= EMA20.")
+            # 3. Near 52 Week High > 0.7 (close > 70% dari 52w high)
+            if high_52w == 0 or (last_price / high_52w) <= 0.7:
+                logger.info(f"{ticker} filtered out: close {last_price} / 52w high {high_52w} <= 0.7.")
                 continue
-            if ema20 <= ema50:
-                logger.info(f"{ticker} filtered out: EMA20 {ema20} <= EMA50 {ema50} (trend lemah).")
+            # 4. Value > 5,000,000,000 (close * volume)
+            if last_price * volume <= 5_000_000_000:
+                logger.info(f"{ticker} filtered out: value {last_price * volume:.0f} <= 5M.")
                 continue
-            if rsi14 >= 70:
-                logger.info(f"{ticker} filtered out: RSI >= 70.")
+            # 5. Price > 1 x Price MA5
+            if ma5 == 0 or last_price <= ma5:
+                logger.info(f"{ticker} filtered out: price {last_price} <= MA5 {ma5}.")
                 continue
-            # Lower shadow < 1% range harian
-            if lower_shadow / range_harian > 0.01:
-                logger.info(f"{ticker} filtered out: lower shadow {lower_shadow:.2f} > 1% range harian {range_harian:.2f}.")
+            # 6. Volume > 2 x Volume MA20
+            if ma20v == 0 or volume <= 2 * ma20v:
+                logger.info(f"{ticker} filtered out: volume {volume} <= 2x MA20 {ma20v}.")
                 continue
             tp = last_price * 1.03
             sl = last_price * 0.98
