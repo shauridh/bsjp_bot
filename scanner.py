@@ -58,18 +58,17 @@ def fetch_trending():
         logger.error(f"GoAPI fetch error: {e}")
         return []
 
-def fetch_companies():
-    url = f"{GOAPI_BASE_URL}/companies?api_key={GOAPI_KEY}"
-    try:
-        logger.info("Fetching companies from GoAPI...")
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        logger.info(f"Fetched {len(data.get('data', []))} companies.")
-        return data.get('data', [])
-    except Exception as e:
-        logger.error(f"GoAPI fetch error: {e}")
-        return []
+
+# --- YFinance IDX Universe Fetch ---
+def fetch_yf_universe():
+    # Sumber: https://finance.yahoo.com/lookup/stocks; exchange: JK
+    # Atau gunakan list statis jika scraping tidak memungkinkan
+    # Kompas100 per Desember 2025 (update sesuai kebutuhan)
+    kompas100 = [
+        'ACES','ACST','ADHI','ADRO','AGII','AKRA','AMRT','ANTM','APLN','ASII','ASRI','BBCA','BBNI','BBRI','BBTN','BFIN','BJBR','BJTM','BMRI','BNGA','BNII','BRIS','BRPT','BSDE','BTPS','BUDI','CPIN','CTRA','DMAS','DOID','DSNG','ELSA','ERAA','EXCL','FREN','GGRM','GJTL','GOTO','HEAL','HMSP','ICBP','INCO','INDF','INDY','INKP','INTP','IPCM','ITMG','JPFA','JSMR','KIJA','KLBF','LPKR','LPPF','MAPI','MDKA','MEDC','MIKA','MNCN','MPPA','MTDL','MYOR','PGAS','PNLF','PPRE','PPRO','PRDA','PTBA','PTPP','PWON','RAJA','RALS','ROTI','SCMA','SIDO','SMGR','SMRA','SSMS','TCPI','TINS','TKIM','TLKM','TOWR','TPIA','TRAM','TUGU','UNTR','UNVR','WEGE','WIKA','WSBP','WSKT','WTON'
+    ]
+    logger.info(f"Fetched {len(kompas100)} tickers from yfinance universe (Kompas100 list).")
+    return kompas100
 
 def fetch_prices(codes):
     # codes: list of stock codes, e.g. ['BBCA','BBRI']
@@ -144,24 +143,25 @@ def validate_trend(ticker, retries=2, sleep=2):
 
 def hybrid_scan(strategy):
     logger.info(f"Starting hybrid_scan for {strategy}")
-    if strategy == 'BSJP':
-        # Screening seluruh universe IDX
-        companies = fetch_companies()
-        logger.info(f"Total companies fetched: {len(companies)}")
-        candidates = [s for s in companies if basic_filter(s, min_price=50, min_vol=10000)]
-        logger.info(f"Candidates after basic filter: {len(candidates)}")
-    else:
-        gainers = fetch_top_gainers()
-        logger.info(f"Total gainers fetched: {len(gainers)}")
-        candidates = [s for s in gainers if basic_filter(s, min_price=50, min_vol=10000)]
-        logger.info(f"Candidates after basic filter: {len(candidates)}")
+    # Screening seluruh universe IDX dari yfinance (LQ45 demo list, bisa diganti full IDX)
+    tickers = fetch_yf_universe()
+    logger.info(f"Total tickers fetched: {len(tickers)}")
     results = []
-    for stock in candidates:
-        ticker = stock['code']
+    for ticker in tickers:
         logger.info(f"Validating trend for {ticker}")
         hist = validate_trend(ticker)
         if hist is None:
             logger.info(f"No valid history for {ticker}")
+            continue
+        # Simulasikan struktur 'stock' agar filter tetap jalan
+        last_row = hist.iloc[-1]
+        stock = {
+            'code': ticker,
+            'last': last_row['Close'],
+            'volume': last_row['Volume']
+        }
+        if not basic_filter(stock, min_price=50, min_vol=10000):
+            logger.info(f"{ticker} filtered out: basic filter.")
             continue
         last_row = hist.iloc[-1]
         open_price = last_row['Open']
