@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict
+import itertools
 
 import pandas as pd
 import requests
@@ -15,6 +16,21 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 _CACHE: Dict[str, Dict[str, Any]] = {}
+
+# Load balancing GoAPI tokens
+def _get_goapi_tokens() -> list[str]:
+    tokens = []
+    for i in range(1, 10):
+        t = os.getenv(f"GOAPI_TOKEN_{i}")
+        if t:
+            tokens.append(t)
+    # Fallback to single token
+    t_main = os.getenv("GOAPI_TOKEN")
+    if t_main:
+        tokens.append(t_main)
+    return tokens
+
+_GOAPI_TOKEN_CYCLE = itertools.cycle(_get_goapi_tokens())
 
 
 def _env_truthy(value: str | None) -> bool:
@@ -79,7 +95,8 @@ def _hydrate_from_yfinance(symbol: str, cfg: dict[str, Any], payload: dict[str, 
 
 
 def _hydrate_from_goapi(symbol: str, cfg: dict[str, Any], payload: dict[str, Any]) -> None:
-    token = os.getenv(cfg.get("token_env", "GOAPI_TOKEN")) or cfg.get("token")
+    # Load balance: ambil token berikutnya dari cycle
+    token = next(_GOAPI_TOKEN_CYCLE, None)
     if not token:
         logger.info("Token GoAPI tidak diset. Lewati sumber GoAPI.")
         return

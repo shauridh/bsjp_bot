@@ -17,10 +17,26 @@ def _format_message(signal: Dict[str, Any]) -> str:
         f"📈 {signal.get('strategy', 'Strategy')}",
         f"Symbol : {signal.get('symbol', 'UNKNOWN')}",
         f"Entry  : {signal.get('entry')}",
-        f"TP     : {signal.get('tp')}",
-        f"SL     : {signal.get('sl')}",
     ]
+    # Risk management: Antri jika harga turun dari entry tapi belum kena SL
+    entry = signal.get("entry")
+    sl = signal.get("sl")
     price = signal.get("data", {}).get("price")
+    antri = None
+    if entry and sl and price:
+        try:
+            entry = float(entry)
+            sl = float(sl)
+            price = float(price)
+            if price < entry and price > sl:
+                drop_pct = (entry - price) / entry * 100
+                if drop_pct >= 1.0:  # threshold 1% drop
+                    antri = f"{price:.2f} ({drop_pct:.2f}%)"
+        except Exception:
+            pass
+    lines.append(f"Antri  : {antri if antri else '-'}")
+    lines.append(f"TP     : {signal.get('tp')}")
+    lines.append(f"SL     : {signal.get('sl')}")
     if price:
         lines.append(f"Last Price : {price}")
     if signal.get("chart_path"):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from utils.risk_management import compute_atr, dynamic_sl_tp
 
 
 def _compute_rsi(series: pd.Series, period: int) -> pd.Series:
@@ -36,21 +37,21 @@ def rsi(data: dict, config: dict) -> dict | None:
 
     if rsi_value > overbought:
         direction = "SELL"
-        tp = price * 0.985
-        sl = price * 1.015
     elif rsi_value < oversold:
         direction = "BUY"
-        tp = price * 1.015
-        sl = price * 0.985
     else:
         return None
+
+    # Risk management: ATR-based SL/TP
+    atr = compute_atr(history, period=14)
+    sl, tp = dynamic_sl_tp(price, atr, rr=1.5, direction=direction)
 
     return {
         "symbol": data.get("symbol"),
         "strategy": f"RSI {direction}",
         "entry": round(price, 4),
-        "tp": round(tp, 4),
-        "sl": round(sl, 4),
+        "tp": tp,
+        "sl": sl,
         "data": data,
-        "comment": f"RSI={rsi_value:.2f}",
+        "comment": f"RSI={rsi_value:.2f} ATR={atr:.2f}",
     }

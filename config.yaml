@@ -26,10 +26,13 @@ watchlist:
   limit: 12
   auto_generate: true
   manual: []
+  # BSJP: Beli Sore Jual Pagi
+  # BPJS: Beli Pagi Jual Sore
   style_sets:
     BSJP: ["BBCA.JK", "BMRI.JK", "BBRI.JK", "ASII.JK", "TLKM.JK"]
     BPJS: ["BBCA.JK", "BMRI.JK", "UNVR.JK", "ICBP.JK", "PGAS.JK"]
     Swing: ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META"]
+  limit: 5  # Batasi agar tidak melebihi kuota request harian
 scheduler:
   interval_minutes: 15
 charts:

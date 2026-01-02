@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import pandas as pd
+from utils.risk_management import compute_atr, dynamic_sl_tp, trailing_stop
 
 
 def volume_spike(data: Dict[str, Any], config: dict) -> Dict[str, Any] | None:
@@ -42,20 +43,23 @@ def volume_spike(data: Dict[str, Any], config: dict) -> Dict[str, Any] | None:
         price_change = (recent["close"] - prev_close) / prev_close
     direction = "BUY" if price_change >= 0 else "SELL"
     entry = float(recent["close"])
-    tp = entry * (1 + buffer_pct * 2) if direction == "BUY" else entry * (1 - buffer_pct * 2)
-    sl = entry * (1 - buffer_pct) if direction == "BUY" else entry * (1 + buffer_pct)
+    # Risk management: ATR-based SL/TP
+    atr = compute_atr(history, period=14)
+    sl, tp = dynamic_sl_tp(entry, atr, rr=1.5, direction=direction)
+    # Trailing stop (info only)
+    trailing = trailing_stop(entry, entry, atr, direction=direction)
 
     comment = (
         f"Volume spike {recent['volume']:.0f} vs avg {avg_volume:.0f} "
-        f"({spike_multiplier}x). change={price_change:.2%}"
+        f"({spike_multiplier}x). change={price_change:.2%} | ATR={atr:.2f} Trailing={trailing:.2f}"
     )
 
     return {
         "symbol": data.get("symbol"),
         "strategy": f"Volume Spike {direction}",
         "entry": round(entry, 4),
-        "tp": round(tp, 4),
-        "sl": round(sl, 4),
+        "tp": tp,
+        "sl": sl,
         "data": data,
         "comment": comment,
     }

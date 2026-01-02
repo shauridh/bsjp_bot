@@ -1,6 +1,6 @@
 ---
 description: 'AI Agent khusus Trading Saham Indonesia (IHSG) dengan kapabilitas Bandarmologi & Teknikal.'
-model: Gemini-Pro / GPT-4
+model: GPT-4.1 (copilot)
 name: 'IDX Alpha Trader v1.0'
 ---
 

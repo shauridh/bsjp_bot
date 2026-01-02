@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from utils.news_sentiment import fetch_news_sentiment, fetch_corporate_action
 
 
 def ma_crossover(data: dict, config: dict) -> dict | None:
@@ -38,12 +39,24 @@ def ma_crossover(data: dict, config: dict) -> dict | None:
     tp = last_close * (1.015 if direction == "BUY" else 0.985)
     sl = last_close * (0.985 if direction == "BUY" else 1.015)
 
+    symbol = data.get("symbol")
+    comment = f"MA{short_window}/{long_window} crossover {direction.lower()}"
+    # News sentiment & corporate action (IDX only)
+    if symbol and symbol.endswith(".JK"):
+        news = fetch_news_sentiment(symbol)
+        corp = fetch_corporate_action(symbol, config)
+        comment += f" | Sentimen: {news.get('sentiment')}"
+        if corp:
+            ca_type = corp.get('type')
+            ca_date = corp.get('date')
+            if ca_type:
+                comment += f" | CA: {ca_type} {ca_date if ca_date else ''}"
     return {
-        "symbol": data.get("symbol"),
+        "symbol": symbol,
         "strategy": f"MA Crossover ({direction})",
         "entry": round(last_close, 4),
         "tp": round(tp, 4),
         "sl": round(sl, 4),
         "data": data,
-        "comment": f"MA{short_window}/{long_window} crossover {direction.lower()}",
+        "comment": comment,
     }

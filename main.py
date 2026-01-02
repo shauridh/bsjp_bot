@@ -69,23 +69,45 @@ def process_signals(signals: list[dict], symbol: str, config: dict) -> None:
 		send_signal(signal, config)
 
 
-def job() -> None:
+
+def job_bsjs(style: str) -> None:
 	config = load_config()
+	config = {**config, "watchlist": {**config.get("watchlist", {}), "style": style}}
 	watchlist = generate_watchlist(config)
-	logger.info("Menjalankan job untuk %s simbol", len(watchlist))
+	logger.info(f"Menjalankan job {style} untuk {len(watchlist)} simbol")
 	for symbol in watchlist:
 		try:
 			signals = run_strategies(symbol, config)
 			if signals:
 				process_signals(signals, symbol, config)
-		except Exception as exc:  # noqa: BLE001
+		except Exception as exc:
 			logger.exception("Gagal memproses %s: %s", symbol, exc)
 
 
 if __name__ == "__main__":
 	scheduler = BackgroundScheduler()
-	interval = load_config().get("scheduler", {}).get("interval_minutes", 15)
-	scheduler.add_job(job, "interval", minutes=interval, max_instances=1, coalesce=True)
+	# BPJS: Beli Pagi Jual Sore (job pagi)
+	scheduler.add_job(
+		lambda: job_bsjs("BPJS"),
+		"cron",
+		day_of_week="mon-fri",
+		hour=1,
+		minute=0,
+		max_instances=1,
+		coalesce=True,
+		timezone="UTC"
+	)
+	# BSJP: Beli Sore Jual Pagi (job sore)
+	scheduler.add_job(
+		lambda: job_bsjs("BSJP"),
+		"cron",
+		day_of_week="mon-fri",
+		hour=8,
+		minute=30,
+		max_instances=1,
+		coalesce=True,
+		timezone="UTC"
+	)
 	scheduler.start()
 	logger.info("Trading bot started. Press Ctrl+C to exit.")
 	try:
