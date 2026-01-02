@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.local
+
+# Data artifacts
+/data/charts/
+/data/signal_log.csv
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/

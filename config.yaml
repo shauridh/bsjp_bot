@@ -1,0 +1,55 @@
+# Configuration for trading bot
+telegram:
+  token: ""
+  chat_id: ""
+gsheets:
+  spreadsheet_id: ""
+  credentials: "service_account.json"
+data_sources:
+  mock: false
+  cache_ttl: 300
+  yfinance:
+    enabled: true
+    period: "7d"
+    interval: "1h"
+    history_window: 160
+  goapi:
+    enabled: true
+    base_url: "https://api.goapi.id/v1/stock"
+    price_endpoint: "idx/{symbol}"
+    ohlcv_endpoint: "idx/{symbol}/ohlcv/latest"
+    token_env: "GOAPI_TOKEN"
+    auth_header: "X-API-KEY"
+    timeout: 8
+watchlist:
+  style: "Swing"
+  limit: 12
+  auto_generate: true
+  manual: []
+  style_sets:
+    BSJP: ["BBCA.JK", "BMRI.JK", "BBRI.JK", "ASII.JK", "TLKM.JK"]
+    BPJS: ["BBCA.JK", "BMRI.JK", "UNVR.JK", "ICBP.JK", "PGAS.JK"]
+    Swing: ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META"]
+scheduler:
+  interval_minutes: 15
+charts:
+  output_dir: "data/charts"
+strategies:
+  - ma_crossover
+  - rsi
+  - support_resist
+  - volume_spike
+strategy_params:
+  ma_crossover:
+    short_window: 9
+    long_window: 21
+  rsi:
+    period: 14
+    overbought: 70
+    oversold: 30
+  support_resist:
+    lookback: 20
+    tolerance: 0.0075
+  volume_spike:
+    lookback: 20
+    spike_multiplier: 1.8

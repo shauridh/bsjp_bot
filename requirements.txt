@@ -1,0 +1,10 @@
+python-telegram-bot>=20.0
+gspread
+oauth2client
+PyYAML
+pandas
+matplotlib
+APScheduler
+yfinance
+requests
+python-dotenv
