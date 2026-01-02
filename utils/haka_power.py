@@ -11,11 +11,11 @@ GOAPI_HAKA_ENDPOINT = "idx/{symbol}/running-trade"
 
 def fetch_haka_power(symbol: str, config: dict) -> dict | None:
     goapi_cfg = config.get("data_sources", {}).get("goapi", {})
-    token = os.getenv(goapi_cfg.get("token_env", "GOAPI_TOKEN")) or goapi_cfg.get("token")
+    token = os.getenv(goapi_cfg.get("token_env", "GOAPI_TOKEN_1")) or os.getenv("GOAPI_TOKEN_1") or os.getenv("GOAPI_TOKEN_2") or goapi_cfg.get("token")
     if not token:
         logger.info("Token GoAPI tidak diset. Lewati running trade.")
         return None
-    base_url = goapi_cfg.get("base_url", "https://api.goapi.id/v1/stock")
+    base_url = goapi_cfg.get("base_url", "https://api.goapi.io/stock/idx")
     headers = {goapi_cfg.get("auth_header", "X-API-KEY"): token}
     timeout = goapi_cfg.get("timeout", 8)
     url = f"{base_url}/{GOAPI_HAKA_ENDPOINT.format(symbol=symbol)}"
