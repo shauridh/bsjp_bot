@@ -4,7 +4,7 @@ telegram:
   chat_id: ""
 gsheets:
   spreadsheet_id: ""
-  credentials: "service_account.json"
+  credentials: "spheric-vine-483111-r6-0ed50862eec7.json"
 data_sources:
   mock: false
   cache_ttl: 300
