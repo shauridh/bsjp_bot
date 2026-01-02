@@ -86,39 +86,50 @@ def job_bsjs(style: str) -> None:
 
 if __name__ == "__main__":
 
-		from utils.telegram import send_startup_message
-		config = load_config()
-		send_startup_message(config)
+	from utils.telegram import send_startup_message, send_signal
+	config = load_config()
+	send_startup_message(config)
 
-		from zoneinfo import ZoneInfo
-		scheduler = BackgroundScheduler(timezone=ZoneInfo("Asia/Jakarta"))
-		# BPJS: Beli Pagi Jual Sore (job pagi)
-		scheduler.add_job(
-			lambda: job_bsjs("BPJS"),
-			"cron",
-			day_of_week="mon-fri",
-			hour=1,
-			minute=0,
-			max_instances=1,
-			coalesce=True,
-			timezone=ZoneInfo("Asia/Jakarta")
-		)
-		# BSJP: Beli Sore Jual Pagi (job sore)
-		scheduler.add_job(
-			lambda: job_bsjs("BSJP"),
-			"cron",
-			day_of_week="mon-fri",
-			hour=8,
-			minute=30,
-			max_instances=1,
-			coalesce=True,
-			timezone=ZoneInfo("Asia/Jakarta")
-		)
-		scheduler.start()
-		logger.info("Trading bot started. Press Ctrl+C to exit.")
-		try:
-			while True:
-				time.sleep(60)
-		except (KeyboardInterrupt, SystemExit):
-			scheduler.shutdown()
-			logger.info("Scheduler dimatikan.")
+	# Kirim sinyal trading terbaru (BSJP/Swing) saat startup
+	style = config.get("watchlist", {}).get("style", "BSJP")
+	config["watchlist"]["style"] = style
+	watchlist = generate_watchlist(config)
+	if watchlist:
+		symbol = watchlist[0]
+		signals = run_strategies(symbol, config)
+		if signals:
+			# Kirim hanya sinyal pertama
+			send_signal(signals[0], config)
+
+	from zoneinfo import ZoneInfo
+	scheduler = BackgroundScheduler(timezone=ZoneInfo("Asia/Jakarta"))
+	# BPJS: Beli Pagi Jual Sore (job pagi)
+	scheduler.add_job(
+		lambda: job_bsjs("BPJS"),
+		"cron",
+		day_of_week="mon-fri",
+		hour=1,
+		minute=0,
+		max_instances=1,
+		coalesce=True,
+		timezone=ZoneInfo("Asia/Jakarta")
+	)
+	# BSJP: Beli Sore Jual Pagi (job sore)
+	scheduler.add_job(
+		lambda: job_bsjs("BSJP"),
+		"cron",
+		day_of_week="mon-fri",
+		hour=8,
+		minute=30,
+		max_instances=1,
+		coalesce=True,
+		timezone=ZoneInfo("Asia/Jakarta")
+	)
+	scheduler.start()
+	logger.info("Trading bot started. Press Ctrl+C to exit.")
+	try:
+		while True:
+			time.sleep(60)
+	except (KeyboardInterrupt, SystemExit):
+		scheduler.shutdown()
+		logger.info("Scheduler dimatikan.")
