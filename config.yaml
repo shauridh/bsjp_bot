@@ -15,10 +15,10 @@ data_sources:
     history_window: 160
   goapi:
     enabled: true
-    base_url: "https://api.goapi.id/v1/stock"
+    base_url: "https://api.goapi.io/stock/idx"
     price_endpoint: "idx/{symbol}"
     ohlcv_endpoint: "idx/{symbol}/ohlcv/latest"
-    token_env: "GOAPI_TOKEN"
+    token_env: "GOAPI_TOKEN_1"
     auth_header: "X-API-KEY"
     timeout: 8
 watchlist:

@@ -85,34 +85,39 @@ def job_bsjs(style: str) -> None:
 
 
 if __name__ == "__main__":
-	scheduler = BackgroundScheduler()
-	# BPJS: Beli Pagi Jual Sore (job pagi)
-	scheduler.add_job(
-		lambda: job_bsjs("BPJS"),
-		"cron",
-		day_of_week="mon-fri",
-		hour=1,
-		minute=0,
-		max_instances=1,
-		coalesce=True,
-		timezone="UTC"
-	)
-	# BSJP: Beli Sore Jual Pagi (job sore)
-	scheduler.add_job(
-		lambda: job_bsjs("BSJP"),
-		"cron",
-		day_of_week="mon-fri",
-		hour=8,
-		minute=30,
-		max_instances=1,
-		coalesce=True,
-		timezone="UTC"
-	)
-	scheduler.start()
-	logger.info("Trading bot started. Press Ctrl+C to exit.")
-	try:
-		while True:
-			time.sleep(60)
-	except (KeyboardInterrupt, SystemExit):
-		scheduler.shutdown()
-		logger.info("Scheduler dimatikan.")
+
+		from utils.telegram import send_startup_message
+		config = load_config()
+		send_startup_message(config)
+
+		scheduler = BackgroundScheduler()
+		# BPJS: Beli Pagi Jual Sore (job pagi)
+		scheduler.add_job(
+			lambda: job_bsjs("BPJS"),
+			"cron",
+			day_of_week="mon-fri",
+			hour=1,
+			minute=0,
+			max_instances=1,
+			coalesce=True,
+			timezone="UTC"
+		)
+		# BSJP: Beli Sore Jual Pagi (job sore)
+		scheduler.add_job(
+			lambda: job_bsjs("BSJP"),
+			"cron",
+			day_of_week="mon-fri",
+			hour=8,
+			minute=30,
+			max_instances=1,
+			coalesce=True,
+			timezone="UTC"
+		)
+		scheduler.start()
+		logger.info("Trading bot started. Press Ctrl+C to exit.")
+		try:
+			while True:
+				time.sleep(60)
+		except (KeyboardInterrupt, SystemExit):
+			scheduler.shutdown()
+			logger.info("Scheduler dimatikan.")
