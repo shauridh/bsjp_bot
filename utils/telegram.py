@@ -81,15 +81,22 @@ def send_signal(signal: Dict[str, Any], config: dict) -> None:
 
 
 # Fungsi notifikasi startup/deploy
+
 def send_startup_message(config: dict) -> None:
     import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Jakarta")
+        now = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S WIB")
+    except ImportError:
+        # Fallback jika zoneinfo tidak tersedia
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     telegram_cfg = config.get("telegram", {})
     token = _get_token(telegram_cfg)
     chat_id = _get_chat_id(telegram_cfg)
     if not token or not chat_id:
         logger.warning("Telegram token/chat_id belum dikonfigurasi. Lewati pengiriman startup.")
         return
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     message = f"✅ Bot IDX Alpha Trader sudah aktif (deploy/restart) — {now}"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:

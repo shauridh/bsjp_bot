@@ -90,7 +90,8 @@ if __name__ == "__main__":
 		config = load_config()
 		send_startup_message(config)
 
-		scheduler = BackgroundScheduler()
+		from zoneinfo import ZoneInfo
+		scheduler = BackgroundScheduler(timezone=ZoneInfo("Asia/Jakarta"))
 		# BPJS: Beli Pagi Jual Sore (job pagi)
 		scheduler.add_job(
 			lambda: job_bsjs("BPJS"),
@@ -100,7 +101,7 @@ if __name__ == "__main__":
 			minute=0,
 			max_instances=1,
 			coalesce=True,
-			timezone="UTC"
+			timezone=ZoneInfo("Asia/Jakarta")
 		)
 		# BSJP: Beli Sore Jual Pagi (job sore)
 		scheduler.add_job(
@@ -111,7 +112,7 @@ if __name__ == "__main__":
 			minute=30,
 			max_instances=1,
 			coalesce=True,
-			timezone="UTC"
+			timezone=ZoneInfo("Asia/Jakarta")
 		)
 		scheduler.start()
 		logger.info("Trading bot started. Press Ctrl+C to exit.")
